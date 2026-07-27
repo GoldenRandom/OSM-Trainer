@@ -220,19 +220,6 @@ def training_loop():
                 except:
                     pass
 
-                # 1. AUTO-CLAIM FINISHED PLAYERS
-                claim_texts = ["Claim", "Finish", "Complete", "Collect"]
-                for c_text in claim_texts:
-                    btns = page.locator(f"button:has-text('{c_text}')")
-                    while btns.count() > 0:
-                        # Exclude any button that might be something else
-                        btn = btns.first
-                        log.info(f"Claiming finished player (Button: {c_text})...")
-                        btn.click()
-                        claimed_count += 1
-                        page.wait_for_timeout(3000)
-
-                # 2. AUTO-RETRAIN (SPECIFIC SLOTS)
                 coach_mapping = {
                     "Universal coach": ["zaïre", "zaire", "emery"],
                     "Attacking coach": ["iwobi"],
@@ -241,109 +228,134 @@ def training_loop():
                     "Goalkeeping coach": ["remiro"]
                 }
                 
-                # Check each specific coach slot one by one
-                for coach_name, preferred_players in coach_mapping.items():
-                    # Safely find the 'Start' button inside this specific coach's panel
-                    clicked_start = page.evaluate('''([coachName]) => {
-                        const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                        for (let btn of buttons) {
-                            if (btn.innerText && btn.innerText.trim() === 'Start') {
-                                let parent = btn.parentElement;
+                while True:
+                    action_taken = False
+                    
+                    # Check each specific coach slot one by one
+                    for coach_name, preferred_players in coach_mapping.items():
+                        log.info(f"Checking slot: {coach_name}...")
+                        
+                        # Find the state of THIS specific coach slot
+                        status = page.evaluate('''([coachName]) => {
+                            const allElements = Array.from(document.querySelectorAll('*'));
+                            const coachElements = allElements.filter(el => 
+                                el.children.length === 0 && 
+                                el.innerText && 
+                                el.innerText.trim() === coachName
+                            );
+                            
+                            for (let el of coachElements) {
+                                let parent = el.parentElement;
                                 let levels = 0;
-                                while(parent && parent.tagName !== 'BODY' && levels < 12) {
-                                    if (parent.innerText && parent.innerText.includes(coachName)) {
-                                        btn.click();
-                                        return true;
-                                    }
+                                while (parent && parent.tagName !== 'BODY' && levels < 10) {
+                                    const buttons = Array.from(parent.querySelectorAll('button, div[role="button"]'));
+                                    
+                                    const claimBtn = buttons.find(b => b.innerText && (b.innerText.includes('Complete') || b.innerText.includes('Finish') || b.innerText.includes('Claim') || b.innerText.includes('Collect')));
+                                    if (claimBtn) { claimBtn.click(); return "CLAIMED"; }
+                                    
+                                    const startBtn = buttons.find(b => b.innerText && b.innerText.trim() === 'Start');
+                                    if (startBtn) { startBtn.click(); return "EMPTY"; }
+                                    
+                                    const adBtn = buttons.find(b => b.innerText && b.innerText.includes('-2h'));
+                                    if (adBtn) { adBtn.click(); return "AD"; }
+                                    
                                     parent = parent.parentElement;
                                     levels++;
                                 }
                             }
-                        }
-                        return false;
-                    }''', [coach_name])
-                    
-                    if clicked_start:
-                        log.info(f"Found empty slot for {coach_name}! Clicking Start to open player list...")
-                        page.wait_for_timeout(3000)
+                            return "COOLDOWN";
+                        }''', [coach_name])
                         
-                        # Modal should now be open, find player rows
-                        player_rows = page.locator(".modal-dialog tbody tr, .modal-dialog .row, .modal-dialog li, div[class*='player']")
-                        if player_rows.count() > 0:
-                            selected = False
-                            selected_name = "Top Prospect"
+                        if status == "CLAIMED":
+                            log.info(f"✅ Claimed finished player for {coach_name}!")
+                            claimed_count += 1
+                            page.wait_for_timeout(3000)
+                            action_taken = True
+                            break # Break for-loop to reload page and restart checks
                             
-                            # Look for preferred players specifically assigned to THIS coach
-                            for row_idx in range(player_rows.count()):
-                                try:
-                                    row_text = player_rows.nth(row_idx).inner_text().lower()
-                                    for pref_name in preferred_players:
-                                        if pref_name in row_text:
-                                            log.info(f"Found designated player '{pref_name}' for {coach_name}. Selecting...")
-                                            player_rows.nth(row_idx).click()
-                                            selected = True
-                                            selected_name = pref_name.title()
-                                            break
-                                    if selected:
-                                        break
-                                except Exception:
-                                    pass
-                                    
-                            # Fallback if designated player is injured or already training
-                            if not selected:
-                                log.info(f"Designated player for {coach_name} not found. Falling back to the top prospect...")
-                                player_rows.nth(1 if player_rows.count() > 1 else 0).click()
-                                
-                            # Clicking the player instantly starts training!
-                            log.info(f"Started training for: {selected_name} in {coach_name}")
-                            started_players.append(selected_name)
+                        elif status == "EMPTY":
+                            log.info(f"Found empty slot for {coach_name}! Clicking Start to open player list...")
                             page.wait_for_timeout(3000)
                             
-                            # Reload to ensure DOM is fresh for the next coach
-                            page.reload(wait_until="domcontentloaded")
-                            page.wait_for_timeout(4000)
-                        else:
-                            log.warning("Modal did not appear or no players found. Moving to next coach...")
-                            page.keyboard.press("Escape")
-                            page.wait_for_timeout(2000)
-
-                # 3. WATCH ADS
-                watch_ad_btns = page.locator("button:has-text('-2h')")
-                count = watch_ad_btns.count()
-                
-                if count > 0:
-                    log.info(f"Found {count} available training ads to watch!")
-                    btn = watch_ad_btns.first
-                    btn.click()
-                    ads_watched += 1
+                            # Modal should now be open, find player rows STRICTLY inside the modal
+                            player_rows = page.locator(".modal-dialog tr, .modal-dialog li, div[role='dialog'] tr, div[role='dialog'] li")
+                            if player_rows.count() > 0:
+                                selected = False
+                                selected_name = "Top Prospect"
+                                
+                                # Look for preferred players specifically assigned to THIS coach
+                                for row_idx in range(player_rows.count()):
+                                    try:
+                                        row_text = player_rows.nth(row_idx).inner_text().lower()
+                                        for pref_name in preferred_players:
+                                            if pref_name in row_text:
+                                                log.info(f"Found designated player '{pref_name}' for {coach_name}. Selecting...")
+                                                player_rows.nth(row_idx).click()
+                                                selected = True
+                                                selected_name = pref_name.title()
+                                                break
+                                        if selected:
+                                            break
+                                    except Exception:
+                                        pass
+                                        
+                                # Fallback if designated player is injured or already training
+                                if not selected:
+                                    log.info(f"Designated player for {coach_name} not found. Falling back to the top prospect...")
+                                    try:
+                                        first_row_text = player_rows.nth(0).inner_text().lower()
+                                        fallback_idx = 1 if "age" in first_row_text or "pos" in first_row_text else 0
+                                        if player_rows.count() > fallback_idx:
+                                            player_rows.nth(fallback_idx).click()
+                                        else:
+                                            player_rows.nth(0).click()
+                                    except:
+                                        player_rows.nth(0).click()
+                                    
+                                # Clicking the player instantly starts training!
+                                log.info(f"Started training for: {selected_name} in {coach_name}")
+                                started_players.append(selected_name)
+                                page.wait_for_timeout(3000)
+                            else:
+                                log.warning("Modal did not appear or no players found. Escaping...")
+                                page.keyboard.press("Escape")
+                                page.wait_for_timeout(2000)
+                                
+                            action_taken = True
+                            break
+                            
+                        elif status == "AD":
+                            log.info(f"📺 Found ad for {coach_name}!")
+                            ads_watched += 1
+                            send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} (waiting 65s)...")
+                            page.wait_for_timeout(65000)
+                            action_taken = True
+                            break
+                            
+                        # If COOLDOWN, it just loops to check the next coach
                     
-                    send_whatsapp_message(f"📺 Watching ad #{ads_watched} to speed up training (waiting 65s)...")
-                    
-                    log.info("Ad started playing. Waiting 65 seconds to make sure it finishes...")
-                    page.wait_for_timeout(65000)
-                    
-                    log.info("Reloading for next ad...")
-                    page.reload(wait_until="domcontentloaded")
-                    page.wait_for_timeout(4000)
-                else:
-                    log.info("No training ads found (-2h buttons not visible).")
-                    log.info("Exiting script. GitHub Actions will restart it later!")
-                    
-                    # Send detailed WhatsApp summary
-                    summary = "✅ *Training Update*\n"
-                    if claimed_count > 0:
-                        summary += f"\n🏆 Claimed {claimed_count} finished players!"
-                    if started_players:
-                        summary += f"\n⚽ Started training: {', '.join(started_players)}"
-                    if ads_watched > 0:
-                        summary += f"\n📺 Watched {ads_watched} ads to reduce timers!"
-                    
-                    if claimed_count == 0 and not started_players and ads_watched == 0:
-                        summary += "\nNo actions needed. Training in progress."
+                    if action_taken:
+                        log.info("Reloading page to refresh DOM state before next action...")
+                        page.reload(wait_until="domcontentloaded")
+                        page.wait_for_timeout(4000)
+                    else:
+                        log.info("No actions left for any coach! All slots are training and in cooldown.")
                         
-                    send_whatsapp_message(summary)
-                    send_whatsapp_message("----------------------------")
-                    return
+                        # Send detailed WhatsApp summary
+                        summary = "✅ *Training Update*\n"
+                        if claimed_count > 0:
+                            summary += f"\n🏆 Claimed {claimed_count} finished players!"
+                        if started_players:
+                            summary += f"\n⚽ Started training: {', '.join(started_players)}"
+                        if ads_watched > 0:
+                            summary += f"\n📺 Watched {ads_watched} ads to reduce timers!"
+                        
+                        if claimed_count == 0 and not started_players and ads_watched == 0:
+                            summary += "\nNo actions needed. Training in progress."
+                            
+                        send_whatsapp_message(summary)
+                        send_whatsapp_message("----------------------------")
+                        return
                     
             except Exception as e:
                 log.error(f"Error in training loop: {e}")
