@@ -225,86 +225,87 @@ def training_loop():
                 for c_text in claim_texts:
                     btns = page.locator(f"button:has-text('{c_text}')")
                     while btns.count() > 0:
+                        # Exclude any button that might be something else
                         btn = btns.first
                         log.info(f"Claiming finished player (Button: {c_text})...")
                         btn.click()
                         claimed_count += 1
                         page.wait_for_timeout(3000)
 
-                # 2. AUTO-RETRAIN (EMPTY SLOTS)
-                # Grouped preferred players makes management cleaner
-                preferred_players = {
-                    "universal": ["zaïre", "zaire"],
-                    "attacking": ["iwobi", "nmecha"],
-                    "midfielder": ["paz"],
-                    "defending": ["kalulu", "thiaw"],
-                    "goalkeeping": ["remiro"]
+                # 2. AUTO-RETRAIN (SPECIFIC SLOTS)
+                coach_mapping = {
+                    "Universal coach": ["zaïre", "zaire", "emery"],
+                    "Attacking coach": ["iwobi"],
+                    "Midfielder coach": ["nmecha"],
+                    "Defending coach": ["kalulu"],
+                    "Goalkeeping coach": ["remiro"]
                 }
                 
-                while True:
-                    # Looking at the screenshot, the empty slot button says "Select"
-                    empty_slots = page.locator("button:has-text('Select')").locator("visible=true")
+                # Check each specific coach slot one by one
+                for coach_name, preferred_players in coach_mapping.items():
+                    # Safely find the 'Start' button inside this specific coach's panel
+                    clicked_start = page.evaluate('''([coachName]) => {
+                        const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                        for (let btn of buttons) {
+                            if (btn.innerText && btn.innerText.trim() === 'Start') {
+                                let parent = btn.parentElement;
+                                let levels = 0;
+                                while(parent && parent.tagName !== 'BODY' && levels < 12) {
+                                    if (parent.innerText && parent.innerText.includes(coachName)) {
+                                        btn.click();
+                                        return true;
+                                    }
+                                    parent = parent.parentElement;
+                                    levels++;
+                                }
+                            }
+                        }
+                        return false;
+                    }''', [coach_name])
                     
-                    if empty_slots.count() == 0:
-                        break
+                    if clicked_start:
+                        log.info(f"Found empty slot for {coach_name}! Clicking Start to open player list...")
+                        page.wait_for_timeout(3000)
                         
-                    log.info("Found an empty training slot! Opening modal...")
-                    empty_slots.first.click()
-                    page.wait_for_timeout(2000)
-                    
-                    # Strictly scope the search to the visible modal window
-                    visible_modal = page.locator(".modal-dialog:visible").first
-                    
-                    # Look for rows exclusively inside this visible modal
-                    player_rows = visible_modal.locator("tbody tr, div.row, li")
-                    
-                    if player_rows.count() > 0:
-                        selected = False
-                        selected_name = "Top Prospect"
-                        
-                        # Flatten the preferred dictionary for the active search
-                        all_preferred = [name for sublist in preferred_players.values() for name in sublist]
-                        
-                        # Look for preferred players first
-                        for row_idx in range(player_rows.count()):
-                            try:
-                                row_text = player_rows.nth(row_idx).inner_text().lower()
-                                for pref_name in all_preferred:
-                                    if pref_name in row_text:
-                                        log.info(f"Selecting preferred player: {pref_name.title()}...")
-                                        player_rows.nth(row_idx).click()
-                                        selected = True
-                                        selected_name = pref_name.title()
-                                        break
-                                if selected:
-                                    break
-                            except Exception:
-                                pass
-                                
-                        # Fallback to first available if no preferred player is found
-                        if not selected:
-                            log.info("No preferred player found in the list. Falling back to the top prospect...")
-                            player_rows.nth(1 if player_rows.count() > 1 else 0).click()
+                        # Modal should now be open, find player rows
+                        player_rows = page.locator(".modal-dialog tbody tr, .modal-dialog .row, .modal-dialog li, div[class*='player']")
+                        if player_rows.count() > 0:
+                            selected = False
+                            selected_name = "Top Prospect"
                             
-                        page.wait_for_timeout(1000)
-                        
-                        # Click the Start button (strictly scoped to the modal)
-                        start_btn = visible_modal.locator("button:has-text('Start')").first
-                        if start_btn.is_visible(timeout=2000):
-                            log.info("Starting new training session...")
-                            start_btn.click()
+                            # Look for preferred players specifically assigned to THIS coach
+                            for row_idx in range(player_rows.count()):
+                                try:
+                                    row_text = player_rows.nth(row_idx).inner_text().lower()
+                                    for pref_name in preferred_players:
+                                        if pref_name in row_text:
+                                            log.info(f"Found designated player '{pref_name}' for {coach_name}. Selecting...")
+                                            player_rows.nth(row_idx).click()
+                                            selected = True
+                                            selected_name = pref_name.title()
+                                            break
+                                    if selected:
+                                        break
+                                except Exception:
+                                    pass
+                                    
+                            # Fallback if designated player is injured or already training
+                            if not selected:
+                                log.info(f"Designated player for {coach_name} not found. Falling back to the top prospect...")
+                                player_rows.nth(1 if player_rows.count() > 1 else 0).click()
+                                
+                            # Clicking the player instantly starts training!
+                            log.info(f"Started training for: {selected_name} in {coach_name}")
                             started_players.append(selected_name)
                             page.wait_for_timeout(3000)
+                            
+                            # Reload to ensure DOM is fresh for the next coach
                             page.reload(wait_until="domcontentloaded")
                             page.wait_for_timeout(4000)
                         else:
-                            log.warning("Could not find Start button, closing modal...")
+                            log.warning("Modal did not appear or no players found. Moving to next coach...")
                             page.keyboard.press("Escape")
-                            break
-                    else:
-                        log.warning("Could not find player list, closing modal...")
-                        page.keyboard.press("Escape")
-                        break
+                            page.wait_for_timeout(2000)
 
                 # 3. WATCH ADS
                 watch_ad_btns = page.locator("button:has-text('-2h')")
@@ -354,4 +355,3 @@ if __name__ == "__main__":
     log.info(f"Adding a random human-like delay of {delay_seconds} seconds before starting...")
     time.sleep(delay_seconds)
     training_loop()
-                                
