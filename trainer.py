@@ -227,6 +227,7 @@ def training_loop():
                     "Defending coach": ["kalulu"],
                     "Goalkeeping coach": ["remiro"]
                 }
+                ad_attempts = {name: 0 for name in coach_mapping.keys()}
                 
                 while True:
                     action_taken = False
@@ -318,17 +319,20 @@ def training_loop():
                             break # break coach loop to reload
                             
                         # Check 3: WATCH AD
-                        ad_btn = find_button_in_column(["-2h", "−2h", "Watch ad"])
-                        if ad_btn:
-                            log.info(f"📺 Found an ad button for {coach_name}! Watching...")
-                            ad_btn.click()
-                            ads_watched += 1
-                            send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} to speed up training (waiting 65s)...")
-                            page.wait_for_timeout(65000)
-                            action_taken = True
-                            break # break coach loop to reload
-                            
-                        # If we get here, this coach is training and has NO ads available. Loop continues to next coach.
+                        if ad_attempts[coach_name] < 3:
+                            ad_btn = find_button_in_column(["Watch ad", "-2h", "−2h"])
+                            if ad_btn:
+                                log.info(f"📺 Found an ad button for {coach_name}! Watching...")
+                                ad_btn.click()
+                                ad_attempts[coach_name] += 1
+                                ads_watched += 1
+                                send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} to speed up training (waiting 65s)...")
+                                page.wait_for_timeout(65000)
+                                action_taken = True
+                                break # break coach loop to reload
+                                
+                        # If we get here, this coach is training and has NO ads available (or reached max attempts).
+                        # Loop continues to next coach.
                         
                     if action_taken:
                         page.reload(wait_until="domcontentloaded")
