@@ -389,23 +389,23 @@ def training_loop():
                             # No more actions available anywhere! Break out of while True loop.
                             break
                         
-                    # If we reach here, NO actions were taken for ANY coach. We are completely done.
-                    log.info("No actions left for any coach! All slots are training and in cooldown.")
+                # If we reach here, NO actions were taken for ANY coach. We are completely done.
+                log.info("No actions left for any coach! All slots are training and in cooldown.")
+                
+                summary = "✅ *Training Update*\n"
+                if claimed_count > 0:
+                    summary += f"\n🏆 Claimed {claimed_count} finished players!"
+                if started_players:
+                    summary += f"\n⚽ Started training: {', '.join(started_players)}"
+                if ads_watched > 0:
+                    summary += f"\n📺 Watched {ads_watched} ads to reduce timers!"
+                
+                if claimed_count == 0 and not started_players and ads_watched == 0:
+                    summary += "\nNo actions needed. Training in progress."
                     
-                    summary = "✅ *Training Update*\n"
-                    if claimed_count > 0:
-                        summary += f"\n🏆 Claimed {claimed_count} finished players!"
-                    if started_players:
-                        summary += f"\n⚽ Started training: {', '.join(started_players)}"
-                    if ads_watched > 0:
-                        summary += f"\n📺 Watched {ads_watched} ads to reduce timers!"
-                    
-                    if claimed_count == 0 and not started_players and ads_watched == 0:
-                        summary += "\nNo actions needed. Training in progress."
-                        
-                    send_whatsapp_message(summary)
-                    send_whatsapp_message("----------------------------")
-                    return
+                send_whatsapp_message(summary)
+                send_whatsapp_message("----------------------------")
+                return
                     
             except Exception as e:
                 log.error(f"Error in training loop: {e}")
