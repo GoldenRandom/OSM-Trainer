@@ -232,14 +232,23 @@ def training_loop():
                         page.wait_for_timeout(3000)
 
                 # 2. AUTO-RETRAIN (EMPTY SLOTS)
-                preferred_players = ["iwobi", "nmecha", "kalulu", "remiro", "zaïre", "zaire"]
+                # Grouped preferred players makes management cleaner
+                preferred_players = {
+                    "universal": ["zaïre", "zaire"],
+                    "attacking": ["iwobi", "nmecha"],
+                    "midfielder": ["paz"],
+                    "defending": ["kalulu", "thiaw"],
+                    "goalkeeping": ["remiro"]
+                }
                 
                 while True:
-                    empty_slots = page.locator("text='Select a player'")
+                    # Looking at the screenshot, the empty slot button says "Select"
+                    empty_slots = page.locator("button:has-text('Select')").locator("visible=true")
+                    
                     if empty_slots.count() == 0:
                         break
                         
-                    log.info("Found an empty training slot! Adding a player...")
+                    log.info("Found an empty training slot! Opening modal...")
                     empty_slots.first.click()
                     page.wait_for_timeout(2000)
                     
@@ -253,13 +262,16 @@ def training_loop():
                         selected = False
                         selected_name = "Top Prospect"
                         
+                        # Flatten the preferred dictionary for the active search
+                        all_preferred = [name for sublist in preferred_players.values() for name in sublist]
+                        
                         # Look for preferred players first
                         for row_idx in range(player_rows.count()):
                             try:
                                 row_text = player_rows.nth(row_idx).inner_text().lower()
-                                for pref_name in preferred_players:
+                                for pref_name in all_preferred:
                                     if pref_name in row_text:
-                                        log.info(f"Found preferred player matching '{pref_name}'. Selecting...")
+                                        log.info(f"Selecting preferred player: {pref_name.title()}...")
                                         player_rows.nth(row_idx).click()
                                         selected = True
                                         selected_name = pref_name.title()
@@ -342,4 +354,4 @@ if __name__ == "__main__":
     log.info(f"Adding a random human-like delay of {delay_seconds} seconds before starting...")
     time.sleep(delay_seconds)
     training_loop()
-                    
+                                
