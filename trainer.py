@@ -229,115 +229,160 @@ def training_loop():
                 }
                 ad_attempts = {name: 0 for name in coach_mapping.keys()}
                 
+                phase = "START"
+                
                 while True:
                     action_taken = False
                     
-                    for coach_name, preferred_players in coach_mapping.items():
-                        log.info(f"Checking slot: {coach_name}...")
-                        
-                        # Find visible coach name to get its X column position
-                        coach_els = page.locator(f"text='{coach_name}'")
-                        coach_box = None
-                        for i in range(coach_els.count()):
-                            if coach_els.nth(i).is_visible():
-                                coach_box = coach_els.nth(i).bounding_box()
-                                break
+                    if phase == "START":
+                        for coach_name, preferred_players in coach_mapping.items():
+                            coach_els = page.locator(f"text='{coach_name}'")
+                            coach_box = None
+                            for i in range(coach_els.count()):
+                                if coach_els.nth(i).is_visible():
+                                    coach_box = coach_els.nth(i).bounding_box()
+                                    break
+                                    
+                            if not coach_box: continue
                                 
-                        if not coach_box:
+                            def find_button_in_column(selectors):
+                                for sel in selectors:
+                                    btns = page.locator(sel)
+                                    for i in range(btns.count()):
+                                        if btns.nth(i).is_visible():
+                                            btn_box = btns.nth(i).bounding_box()
+                                            if btn_box:
+                                                c_center = coach_box['x'] + (coach_box['width'] / 2)
+                                                b_center = btn_box['x'] + (btn_box['width'] / 2)
+                                                if abs(c_center - b_center) < 100:
+                                                    return btns.nth(i)
+                                return None
+
+                            # Check 1: CLAIM
+                            claim_btn = find_button_in_column(["text='Claim'", "text='Finish'", "text='Complete'", "text='Collect'"])
+                            if claim_btn:
+                                log.info(f"✅ Claiming finished player for {coach_name}...")
+                                claim_btn.click()
+                                claimed_count += 1
+                                page.wait_for_timeout(3000)
+                                action_taken = True
+                                continue
+                                
+                            # Check 2: START
+                            start_btn = find_button_in_column(["text='Start'"])
+                            if start_btn:
+                                log.info(f"Found empty slot for {coach_name}! Clicking Start...")
+                                start_btn.click()
+                                page.wait_for_timeout(3000)
+                                
+                                player_rows = page.locator(".modal-dialog tr, .modal-dialog li, div[role='dialog'] tr, div[role='dialog'] li")
+                                if player_rows.count() > 0:
+                                    selected = False
+                                    selected_name = "Top Prospect"
+                                    
+                                    for row_idx in range(player_rows.count()):
+                                        try:
+                                            row_text = player_rows.nth(row_idx).inner_text().lower()
+                                            for pref_name in preferred_players:
+                                                if pref_name in row_text:
+                                                    log.info(f"Found designated player '{pref_name}' for {coach_name}. Selecting...")
+                                                    player_rows.nth(row_idx).click()
+                                                    selected = True
+                                                    selected_name = pref_name.title()
+                                                    break
+                                            if selected: break
+                                        except Exception: pass
+                                            
+                                    if not selected:
+                                        log.info(f"Designated player for {coach_name} not found. Falling back to top prospect...")
+                                        try:
+                                            first_row_text = player_rows.nth(0).inner_text().lower()
+                                            fallback_idx = 1 if "age" in first_row_text or "pos" in first_row_text else 0
+                                            if player_rows.count() > fallback_idx:
+                                                player_rows.nth(fallback_idx).click()
+                                            else:
+                                                player_rows.nth(0).click()
+                                        except:
+                                            player_rows.nth(0).click()
+                                        
+                                    log.info(f"Started training for: {selected_name} in {coach_name}")
+                                    started_players.append(selected_name)
+                                    page.wait_for_timeout(3000)
+                                else:
+                                    log.warning("Modal did not appear or no players found. Escaping...")
+                                    page.keyboard.press("Escape")
+                                    page.wait_for_timeout(2000)
+                                    
+                                action_taken = True
+                                continue
+                                
+                        if action_taken:
+                            page.reload(wait_until="domcontentloaded")
+                            page.wait_for_timeout(4000)
+                            continue
+                        else:
+                            log.info("All slots are filled and training! Moving to Ads phase...")
+                            phase = "ADS"
                             continue
                             
-                        def find_button_in_column(selectors):
-                            for sel in selectors:
-                                btns = page.locator(sel)
-                                for i in range(btns.count()):
-                                    if btns.nth(i).is_visible():
-                                        btn_box = btns.nth(i).bounding_box()
-                                        if btn_box:
-                                            c_center = coach_box['x'] + (coach_box['width'] / 2)
-                                            b_center = btn_box['x'] + (btn_box['width'] / 2)
-                                            # Center X coordinates must be within 100px to be in the same column
-                                            if abs(c_center - b_center) < 100:
-                                                return btns.nth(i)
-                            return None
-
-                        # Check 1: CLAIM
-                        claim_btn = find_button_in_column(["text='Claim'", "text='Finish'", "text='Complete'", "text='Collect'"])
-                        if claim_btn:
-                            log.info(f"✅ Claiming finished player for {coach_name}...")
-                            claim_btn.click()
-                            claimed_count += 1
-                            page.wait_for_timeout(3000)
-                            action_taken = True
-                            continue # move to next coach
-                            
-                        # Check 2: START
-                        start_btn = find_button_in_column(["text='Start'"])
-                        if start_btn:
-                            log.info(f"Found empty slot for {coach_name}! Clicking Start...")
-                            start_btn.click()
-                            page.wait_for_timeout(3000)
-                            
-                            player_rows = page.locator(".modal-dialog tr, .modal-dialog li, div[role='dialog'] tr, div[role='dialog'] li")
-                            if player_rows.count() > 0:
-                                selected = False
-                                selected_name = "Top Prospect"
-                                
-                                for row_idx in range(player_rows.count()):
-                                    try:
-                                        row_text = player_rows.nth(row_idx).inner_text().lower()
-                                        for pref_name in preferred_players:
-                                            if pref_name in row_text:
-                                                log.info(f"Found designated player '{pref_name}' for {coach_name}. Selecting...")
-                                                player_rows.nth(row_idx).click()
-                                                selected = True
-                                                selected_name = pref_name.title()
-                                                break
-                                        if selected: break
-                                    except Exception: pass
-                                        
-                                if not selected:
-                                    log.info(f"Designated player for {coach_name} not found. Falling back to top prospect...")
-                                    try:
-                                        first_row_text = player_rows.nth(0).inner_text().lower()
-                                        fallback_idx = 1 if "age" in first_row_text or "pos" in first_row_text else 0
-                                        if player_rows.count() > fallback_idx:
-                                            player_rows.nth(fallback_idx).click()
-                                        else:
-                                            player_rows.nth(0).click()
-                                    except:
-                                        player_rows.nth(0).click()
+                    elif phase == "ADS":
+                        for coach_name, preferred_players in coach_mapping.items():
+                            coach_els = page.locator(f"text='{coach_name}'")
+                            coach_box = None
+                            for i in range(coach_els.count()):
+                                if coach_els.nth(i).is_visible():
+                                    coach_box = coach_els.nth(i).bounding_box()
+                                    break
                                     
-                                log.info(f"Started training for: {selected_name} in {coach_name}")
-                                started_players.append(selected_name)
-                                page.wait_for_timeout(3000)
-                            else:
-                                log.warning("Modal did not appear or no players found. Escaping...")
-                                page.keyboard.press("Escape")
-                                page.wait_for_timeout(2000)
+                            if not coach_box: continue
                                 
-                            action_taken = True
-                            continue # move to next coach
-                            
-                        # Check 3: WATCH AD
-                        if ad_attempts[coach_name] < 3:
-                            ad_btn = find_button_in_column(["button[data-bind*='boostTrainingSessionWithVideo']"])
-                            if ad_btn:
-                                log.info(f"📺 Found an ad button for {coach_name}! Watching...")
-                                ad_btn.click()
-                                ad_attempts[coach_name] += 1
-                                ads_watched += 1
-                                send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} to speed up training (waiting 65s)...")
-                                page.wait_for_timeout(65000)
-                                action_taken = True
-                                continue # move to next coach
-                                
-                        # If we get here, this coach is training and has NO ads available (or reached max attempts).
-                        # Loop continues to next coach.
-                        
-                    if action_taken:
-                        page.reload(wait_until="domcontentloaded")
-                        page.wait_for_timeout(4000)
-                        continue
+                            def find_button_in_column(selectors):
+                                for sel in selectors:
+                                    btns = page.locator(sel)
+                                    for i in range(btns.count()):
+                                        if btns.nth(i).is_visible():
+                                            btn_box = btns.nth(i).bounding_box()
+                                            if btn_box:
+                                                c_center = coach_box['x'] + (coach_box['width'] / 2)
+                                                b_center = btn_box['x'] + (btn_box['width'] / 2)
+                                                if abs(c_center - b_center) < 100:
+                                                    return btns.nth(i)
+                                return None
+
+                            if ad_attempts[coach_name] < 3:
+                                ad_btn = find_button_in_column(["button[data-bind*='boostTrainingSessionWithVideo']"])
+                                if ad_btn:
+                                    log.info(f"📺 Found an ad button for {coach_name}! Watching...")
+                                    ad_btn.click()
+                                    
+                                    page.wait_for_timeout(3000)
+                                    limit_popup = page.locator("text=\"Can't show video\", text=\"maximum of videos\"").first
+                                    
+                                    if limit_popup.is_visible():
+                                        log.warning(f"Ads exhausted for {coach_name}! Skipping future ads for this slot.")
+                                        ad_attempts[coach_name] = 3
+                                        ok_btn = page.locator("button:has-text('Ok'), .btn:has-text('Ok')").first
+                                        if ok_btn.is_visible():
+                                            ok_btn.click()
+                                            page.wait_for_timeout(1000)
+                                    else:
+                                        ad_attempts[coach_name] += 1
+                                        ads_watched += 1
+                                        send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} to speed up training (waiting 65s)...")
+                                        page.wait_for_timeout(65000)
+                                        
+                                    action_taken = True
+                                    continue
+                                    
+                        if action_taken:
+                            page.reload(wait_until="domcontentloaded")
+                            page.wait_for_timeout(4000)
+                            # Revert to START phase in case an ad finished a training timer!
+                            phase = "START"
+                            continue
+                        else:
+                            # No more actions available anywhere! Break out of while True loop.
+                            break
                         
                     # If we reach here, NO actions were taken for ANY coach. We are completely done.
                     log.info("No actions left for any coach! All slots are training and in cooldown.")
