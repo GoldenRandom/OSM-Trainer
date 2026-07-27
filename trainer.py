@@ -244,10 +244,24 @@ def training_loop():
                                 el.innerText.trim() === coachName
                             );
                             
+                            const otherCoaches = ["Universal coach", "Attacking coach", "Midfielder coach", "Defending coach", "Goalkeeping coach"].filter(c => c !== coachName);
+                            
                             for (let el of coachElements) {
                                 let parent = el.parentElement;
                                 let levels = 0;
-                                while (parent && parent.tagName !== 'BODY' && levels < 10) {
+                                while (parent && parent.tagName !== 'BODY' && levels < 12) {
+                                    // Prevent bleeding into the entire row/page container
+                                    let hasOtherCoach = false;
+                                    for (let oc of otherCoaches) {
+                                        if (parent.innerText.includes(oc)) {
+                                            hasOtherCoach = true;
+                                            break;
+                                        }
+                                    }
+                                    if (hasOtherCoach) {
+                                        break; // Stop going up! We reached a container holding multiple coaches
+                                    }
+                                    
                                     const buttons = Array.from(parent.querySelectorAll('button, div[role="button"]'));
                                     
                                     const claimBtn = buttons.find(b => b.innerText && (b.innerText.includes('Complete') || b.innerText.includes('Finish') || b.innerText.includes('Claim') || b.innerText.includes('Collect')));
@@ -363,7 +377,4 @@ def training_loop():
                 return
 
 if __name__ == "__main__":
-    delay_seconds = random.randint(10, 120)
-    log.info(f"Adding a random human-like delay of {delay_seconds} seconds before starting...")
-    time.sleep(delay_seconds)
     training_loop()
