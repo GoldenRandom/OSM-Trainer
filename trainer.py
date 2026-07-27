@@ -246,9 +246,9 @@ def training_loop():
                         if not coach_box:
                             continue
                             
-                        def find_button_in_column(text_queries):
-                            for text_query in text_queries:
-                                btns = page.locator(f"text='{text_query}'")
+                        def find_button_in_column(selectors):
+                            for sel in selectors:
+                                btns = page.locator(sel)
                                 for i in range(btns.count()):
                                     if btns.nth(i).is_visible():
                                         btn_box = btns.nth(i).bounding_box()
@@ -261,7 +261,7 @@ def training_loop():
                             return None
 
                         # Check 1: CLAIM
-                        claim_btn = find_button_in_column(["Claim", "Finish", "Complete", "Collect"])
+                        claim_btn = find_button_in_column(["text='Claim'", "text='Finish'", "text='Complete'", "text='Collect'"])
                         if claim_btn:
                             log.info(f"✅ Claiming finished player for {coach_name}...")
                             claim_btn.click()
@@ -271,7 +271,7 @@ def training_loop():
                             break # break coach loop to reload
                             
                         # Check 2: START
-                        start_btn = find_button_in_column(["Start"])
+                        start_btn = find_button_in_column(["text='Start'"])
                         if start_btn:
                             log.info(f"Found empty slot for {coach_name}! Clicking Start...")
                             start_btn.click()
@@ -320,7 +320,7 @@ def training_loop():
                             
                         # Check 3: WATCH AD
                         if ad_attempts[coach_name] < 3:
-                            ad_btn = find_button_in_column(["Watch ad", "-2h", "−2h"])
+                            ad_btn = find_button_in_column(["button[data-bind*='boostTrainingSessionWithVideo']"])
                             if ad_btn:
                                 log.info(f"📺 Found an ad button for {coach_name}! Watching...")
                                 ad_btn.click()
