@@ -225,7 +225,6 @@ def training_loop():
                 for c_text in claim_texts:
                     btns = page.locator(f"button:has-text('{c_text}')")
                     while btns.count() > 0:
-                        # Exclude any button that might be something else
                         btn = btns.first
                         log.info(f"Claiming finished player (Button: {c_text})...")
                         btn.click()
@@ -233,20 +232,23 @@ def training_loop():
                         page.wait_for_timeout(3000)
 
                 # 2. AUTO-RETRAIN (EMPTY SLOTS)
-                # In OSM, empty slots usually just say "Select a player" or have a plus icon
-                empty_slots = page.locator("text='Select a player'")
-                
-                # List of preferred players to train (lowercase for easy matching)
                 preferred_players = ["iwobi", "nmecha", "kalulu", "remiro", "zaïre", "zaire"]
                 
-                while empty_slots.count() > 0:
+                while True:
+                    empty_slots = page.locator("text='Select a player'")
+                    if empty_slots.count() == 0:
+                        break
+                        
                     log.info("Found an empty training slot! Adding a player...")
                     empty_slots.first.click()
                     page.wait_for_timeout(2000)
                     
-                    # Click the first available player in the list
-                    # It's usually a table row (tr) or a list item (li) inside a modal
-                    player_rows = page.locator(".modal-dialog tbody tr, .modal-dialog .row, .modal-dialog li, div[class*='player']")
+                    # Strictly scope the search to the visible modal window
+                    visible_modal = page.locator(".modal-dialog:visible").first
+                    
+                    # Look for rows exclusively inside this visible modal
+                    player_rows = visible_modal.locator("tbody tr, div.row, li")
+                    
                     if player_rows.count() > 0:
                         selected = False
                         selected_name = "Top Prospect"
@@ -274,8 +276,8 @@ def training_loop():
                             
                         page.wait_for_timeout(1000)
                         
-                        # Click the Start button
-                        start_btn = page.locator("button:has-text('Start')").first
+                        # Click the Start button (strictly scoped to the modal)
+                        start_btn = visible_modal.locator("button:has-text('Start')").first
                         if start_btn.is_visible(timeout=2000):
                             log.info("Starting new training session...")
                             start_btn.click()
@@ -340,3 +342,4 @@ if __name__ == "__main__":
     log.info(f"Adding a random human-like delay of {delay_seconds} seconds before starting...")
     time.sleep(delay_seconds)
     training_loop()
+                    
