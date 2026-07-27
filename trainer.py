@@ -268,7 +268,7 @@ def training_loop():
                             claimed_count += 1
                             page.wait_for_timeout(3000)
                             action_taken = True
-                            break # break coach loop to reload
+                            continue # move to next coach
                             
                         # Check 2: START
                         start_btn = find_button_in_column(["text='Start'"])
@@ -316,7 +316,7 @@ def training_loop():
                                 page.wait_for_timeout(2000)
                                 
                             action_taken = True
-                            break # break coach loop to reload
+                            continue # move to next coach
                             
                         # Check 3: WATCH AD
                         if ad_attempts[coach_name] < 3:
@@ -329,7 +329,7 @@ def training_loop():
                                 send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} to speed up training (waiting 65s)...")
                                 page.wait_for_timeout(65000)
                                 action_taken = True
-                                break # break coach loop to reload
+                                continue # move to next coach
                                 
                         # If we get here, this coach is training and has NO ads available (or reached max attempts).
                         # Loop continues to next coach.
