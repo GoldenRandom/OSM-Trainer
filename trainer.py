@@ -231,64 +231,55 @@ def training_loop():
                 while True:
                     action_taken = False
                     
-                    # Check each specific coach slot one by one
+                    # 1. GLOBAL CLAIM FINISHED PLAYERS
+                    claim_texts = ["Claim", "Finish", "Complete", "Collect"]
+                    for c_text in claim_texts:
+                        btns = page.locator(f"button:has-text('{c_text}')")
+                        for i in range(btns.count()):
+                            if btns.nth(i).is_visible():
+                                log.info(f"✅ Claiming finished player (Button: {c_text})...")
+                                btns.nth(i).click()
+                                claimed_count += 1
+                                page.wait_for_timeout(3000)
+                                action_taken = True
+                                break
+                        if action_taken: break
+                        
+                    if action_taken:
+                        page.reload(wait_until="domcontentloaded")
+                        page.wait_for_timeout(4000)
+                        continue
+                        
+                    # 2. CHECK SPECIFIC EMPTY SLOTS (Visual Bounding Box Mapping)
                     for coach_name, preferred_players in coach_mapping.items():
-                        log.info(f"Checking slot: {coach_name}...")
+                        start_btn = None
                         
-                        # Find the state of THIS specific coach slot
-                        status = page.evaluate('''([coachName]) => {
-                            const allElements = Array.from(document.querySelectorAll('*'));
-                            const coachElements = allElements.filter(el => 
-                                el.children.length === 0 && 
-                                el.innerText && 
-                                el.innerText.trim() === coachName
-                            );
-                            
-                            const otherCoaches = ["Universal coach", "Attacking coach", "Midfielder coach", "Defending coach", "Goalkeeping coach"].filter(c => c !== coachName);
-                            
-                            for (let el of coachElements) {
-                                let parent = el.parentElement;
-                                let levels = 0;
-                                while (parent && parent.tagName !== 'BODY' && levels < 12) {
-                                    // Prevent bleeding into the entire row/page container
-                                    let hasOtherCoach = false;
-                                    for (let oc of otherCoaches) {
-                                        if (parent.innerText.includes(oc)) {
-                                            hasOtherCoach = true;
-                                            break;
-                                        }
-                                    }
-                                    if (hasOtherCoach) {
-                                        break; // Stop going up! We reached a container holding multiple coaches
-                                    }
-                                    
-                                    const buttons = Array.from(parent.querySelectorAll('button, div[role="button"]'));
-                                    
-                                    const claimBtn = buttons.find(b => b.innerText && (b.innerText.includes('Complete') || b.innerText.includes('Finish') || b.innerText.includes('Claim') || b.innerText.includes('Collect')));
-                                    if (claimBtn) { claimBtn.click(); return "CLAIMED"; }
-                                    
-                                    const startBtn = buttons.find(b => b.innerText && b.innerText.trim() === 'Start');
-                                    if (startBtn) { startBtn.click(); return "EMPTY"; }
-                                    
-                                    const adBtn = buttons.find(b => b.innerText && b.innerText.includes('-2h'));
-                                    if (adBtn) { adBtn.click(); return "AD"; }
-                                    
-                                    parent = parent.parentElement;
-                                    levels++;
-                                }
-                            }
-                            return "COOLDOWN";
-                        }''', [coach_name])
-                        
-                        if status == "CLAIMED":
-                            log.info(f"✅ Claimed finished player for {coach_name}!")
-                            claimed_count += 1
-                            page.wait_for_timeout(3000)
-                            action_taken = True
-                            break # Break for-loop to reload page and restart checks
-                            
-                        elif status == "EMPTY":
-                            log.info(f"Found empty slot for {coach_name}! Clicking Start to open player list...")
+                        # Find visible coach name to get its X column position
+                        coach_els = page.locator(f"text='{coach_name}'")
+                        coach_box = None
+                        for i in range(coach_els.count()):
+                            if coach_els.nth(i).is_visible():
+                                coach_box = coach_els.nth(i).bounding_box()
+                                break
+                                
+                        if coach_box:
+                            # Find all 'Start' buttons and see which one is in this column
+                            all_starts = page.locator("button:has-text('Start')")
+                            for i in range(all_starts.count()):
+                                if all_starts.nth(i).is_visible():
+                                    btn_box = all_starts.nth(i).bounding_box()
+                                    if btn_box:
+                                        c_center = coach_box['x'] + (coach_box['width'] / 2)
+                                        b_center = btn_box['x'] + (btn_box['width'] / 2)
+                                        
+                                        # Center X coordinates must be within 100px to be in the same column
+                                        if abs(c_center - b_center) < 100:
+                                            start_btn = all_starts.nth(i)
+                                            break
+                                            
+                        if start_btn:
+                            log.info(f"Found empty slot for {coach_name}! Clicking Start...")
+                            start_btn.click()
                             page.wait_for_timeout(3000)
                             
                             # Modal should now be open, find player rows STRICTLY inside the modal
@@ -336,40 +327,49 @@ def training_loop():
                                 page.wait_for_timeout(2000)
                                 
                             action_taken = True
-                            break
+                            break # Break the for loop
                             
-                        elif status == "AD":
-                            log.info(f"📺 Found ad for {coach_name}!")
-                            ads_watched += 1
-                            send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} (waiting 65s)...")
-                            page.wait_for_timeout(65000)
-                            action_taken = True
-                            break
-                            
-                        # If COOLDOWN, it just loops to check the next coach
-                    
                     if action_taken:
-                        log.info("Reloading page to refresh DOM state before next action...")
                         page.reload(wait_until="domcontentloaded")
                         page.wait_for_timeout(4000)
-                    else:
-                        log.info("No actions left for any coach! All slots are training and in cooldown.")
+                        continue
                         
-                        # Send detailed WhatsApp summary
-                        summary = "✅ *Training Update*\n"
-                        if claimed_count > 0:
-                            summary += f"\n🏆 Claimed {claimed_count} finished players!"
-                        if started_players:
-                            summary += f"\n⚽ Started training: {', '.join(started_players)}"
-                        if ads_watched > 0:
-                            summary += f"\n📺 Watched {ads_watched} ads to reduce timers!"
+                    # 3. GLOBAL AD WATCH (-2h)
+                    ad_btns = page.locator("button:has-text('-2h')")
+                    if ad_btns.count() > 0:
+                        for i in range(ad_btns.count()):
+                            if ad_btns.nth(i).is_visible():
+                                log.info("📺 Found an ad button (-2h)! Watching...")
+                                ad_btns.nth(i).click()
+                                ads_watched += 1
+                                send_whatsapp_message(f"📺 Watching ad #{ads_watched} to speed up training (waiting 65s)...")
+                                page.wait_for_timeout(65000)
+                                action_taken = True
+                                break
+                                
+                    if action_taken:
+                        page.reload(wait_until="domcontentloaded")
+                        page.wait_for_timeout(4000)
+                        continue
                         
-                        if claimed_count == 0 and not started_players and ads_watched == 0:
-                            summary += "\nNo actions needed. Training in progress."
-                            
-                        send_whatsapp_message(summary)
-                        send_whatsapp_message("----------------------------")
-                        return
+                    # 4. DONE (No actions left)
+                    log.info("No actions left for any coach! All slots are training and in cooldown.")
+                    
+                    # Send detailed WhatsApp summary
+                    summary = "✅ *Training Update*\n"
+                    if claimed_count > 0:
+                        summary += f"\n🏆 Claimed {claimed_count} finished players!"
+                    if started_players:
+                        summary += f"\n⚽ Started training: {', '.join(started_players)}"
+                    if ads_watched > 0:
+                        summary += f"\n📺 Watched {ads_watched} ads to reduce timers!"
+                    
+                    if claimed_count == 0 and not started_players and ads_watched == 0:
+                        summary += "\nNo actions needed. Training in progress."
+                        
+                    send_whatsapp_message(summary)
+                    send_whatsapp_message("----------------------------")
+                    return
                     
             except Exception as e:
                 log.error(f"Error in training loop: {e}")
