@@ -231,28 +231,8 @@ def training_loop():
                 while True:
                     action_taken = False
                     
-                    # 1. GLOBAL CLAIM FINISHED PLAYERS
-                    claim_texts = ["Claim", "Finish", "Complete", "Collect"]
-                    for c_text in claim_texts:
-                        btns = page.locator(f"button:has-text('{c_text}')")
-                        for i in range(btns.count()):
-                            if btns.nth(i).is_visible():
-                                log.info(f"✅ Claiming finished player (Button: {c_text})...")
-                                btns.nth(i).click()
-                                claimed_count += 1
-                                page.wait_for_timeout(3000)
-                                action_taken = True
-                                break
-                        if action_taken: break
-                        
-                    if action_taken:
-                        page.reload(wait_until="domcontentloaded")
-                        page.wait_for_timeout(4000)
-                        continue
-                        
-                    # 2. CHECK SPECIFIC EMPTY SLOTS (Visual Bounding Box Mapping)
                     for coach_name, preferred_players in coach_mapping.items():
-                        start_btn = None
+                        log.info(f"Checking slot: {coach_name}...")
                         
                         # Find visible coach name to get its X column position
                         coach_els = page.locator(f"text='{coach_name}'")
@@ -262,33 +242,45 @@ def training_loop():
                                 coach_box = coach_els.nth(i).bounding_box()
                                 break
                                 
-                        if coach_box:
-                            # Find all 'Start' buttons and see which one is in this column
-                            all_starts = page.locator("button:has-text('Start')")
-                            for i in range(all_starts.count()):
-                                if all_starts.nth(i).is_visible():
-                                    btn_box = all_starts.nth(i).bounding_box()
-                                    if btn_box:
-                                        c_center = coach_box['x'] + (coach_box['width'] / 2)
-                                        b_center = btn_box['x'] + (btn_box['width'] / 2)
-                                        
-                                        # Center X coordinates must be within 100px to be in the same column
-                                        if abs(c_center - b_center) < 100:
-                                            start_btn = all_starts.nth(i)
-                                            break
-                                            
+                        if not coach_box:
+                            continue
+                            
+                        def find_button_in_column(text_queries):
+                            for text_query in text_queries:
+                                btns = page.locator(f"text='{text_query}'")
+                                for i in range(btns.count()):
+                                    if btns.nth(i).is_visible():
+                                        btn_box = btns.nth(i).bounding_box()
+                                        if btn_box:
+                                            c_center = coach_box['x'] + (coach_box['width'] / 2)
+                                            b_center = btn_box['x'] + (btn_box['width'] / 2)
+                                            # Center X coordinates must be within 100px to be in the same column
+                                            if abs(c_center - b_center) < 100:
+                                                return btns.nth(i)
+                            return None
+
+                        # Check 1: CLAIM
+                        claim_btn = find_button_in_column(["Claim", "Finish", "Complete", "Collect"])
+                        if claim_btn:
+                            log.info(f"✅ Claiming finished player for {coach_name}...")
+                            claim_btn.click()
+                            claimed_count += 1
+                            page.wait_for_timeout(3000)
+                            action_taken = True
+                            break # break coach loop to reload
+                            
+                        # Check 2: START
+                        start_btn = find_button_in_column(["Start"])
                         if start_btn:
                             log.info(f"Found empty slot for {coach_name}! Clicking Start...")
                             start_btn.click()
                             page.wait_for_timeout(3000)
                             
-                            # Modal should now be open, find player rows STRICTLY inside the modal
                             player_rows = page.locator(".modal-dialog tr, .modal-dialog li, div[role='dialog'] tr, div[role='dialog'] li")
                             if player_rows.count() > 0:
                                 selected = False
                                 selected_name = "Top Prospect"
                                 
-                                # Look for preferred players specifically assigned to THIS coach
                                 for row_idx in range(player_rows.count()):
                                     try:
                                         row_text = player_rows.nth(row_idx).inner_text().lower()
@@ -299,14 +291,11 @@ def training_loop():
                                                 selected = True
                                                 selected_name = pref_name.title()
                                                 break
-                                        if selected:
-                                            break
-                                    except Exception:
-                                        pass
+                                        if selected: break
+                                    except Exception: pass
                                         
-                                # Fallback if designated player is injured or already training
                                 if not selected:
-                                    log.info(f"Designated player for {coach_name} not found. Falling back to the top prospect...")
+                                    log.info(f"Designated player for {coach_name} not found. Falling back to top prospect...")
                                     try:
                                         first_row_text = player_rows.nth(0).inner_text().lower()
                                         fallback_idx = 1 if "age" in first_row_text or "pos" in first_row_text else 0
@@ -317,7 +306,6 @@ def training_loop():
                                     except:
                                         player_rows.nth(0).click()
                                     
-                                # Clicking the player instantly starts training!
                                 log.info(f"Started training for: {selected_name} in {coach_name}")
                                 started_players.append(selected_name)
                                 page.wait_for_timeout(3000)
@@ -327,35 +315,29 @@ def training_loop():
                                 page.wait_for_timeout(2000)
                                 
                             action_taken = True
-                            break # Break the for loop
+                            break # break coach loop to reload
                             
+                        # Check 3: WATCH AD
+                        ad_btn = find_button_in_column(["-2h", "−2h", "Watch ad"])
+                        if ad_btn:
+                            log.info(f"📺 Found an ad button for {coach_name}! Watching...")
+                            ad_btn.click()
+                            ads_watched += 1
+                            send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} to speed up training (waiting 65s)...")
+                            page.wait_for_timeout(65000)
+                            action_taken = True
+                            break # break coach loop to reload
+                            
+                        # If we get here, this coach is training and has NO ads available. Loop continues to next coach.
+                        
                     if action_taken:
                         page.reload(wait_until="domcontentloaded")
                         page.wait_for_timeout(4000)
                         continue
                         
-                    # 3. GLOBAL AD WATCH (-2h)
-                    ad_btns = page.locator("button:has-text('-2h')")
-                    if ad_btns.count() > 0:
-                        for i in range(ad_btns.count()):
-                            if ad_btns.nth(i).is_visible():
-                                log.info("📺 Found an ad button (-2h)! Watching...")
-                                ad_btns.nth(i).click()
-                                ads_watched += 1
-                                send_whatsapp_message(f"📺 Watching ad #{ads_watched} to speed up training (waiting 65s)...")
-                                page.wait_for_timeout(65000)
-                                action_taken = True
-                                break
-                                
-                    if action_taken:
-                        page.reload(wait_until="domcontentloaded")
-                        page.wait_for_timeout(4000)
-                        continue
-                        
-                    # 4. DONE (No actions left)
+                    # If we reach here, NO actions were taken for ANY coach. We are completely done.
                     log.info("No actions left for any coach! All slots are training and in cooldown.")
                     
-                    # Send detailed WhatsApp summary
                     summary = "✅ *Training Update*\n"
                     if claimed_count > 0:
                         summary += f"\n🏆 Claimed {claimed_count} finished players!"
