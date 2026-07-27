@@ -356,23 +356,28 @@ def training_loop():
                                     ad_btn.click()
                                     
                                     page.wait_for_timeout(3000)
-                                    limit_popup = page.locator("text=\"Can't show video\", text=\"maximum of videos\"").first
+                                    limit_popup = page.locator("text=maximum of videos").first
                                     
                                     if limit_popup.is_visible():
-                                        log.warning(f"Ads exhausted for {coach_name}! Skipping future ads for this slot.")
-                                        ad_attempts[coach_name] = 3
+                                        log.warning(f"Ads exhausted globally! Exiting ad loop.")
+                                        for k in ad_attempts.keys():
+                                            ad_attempts[k] = 3
+                                            
                                         ok_btn = page.locator("button:has-text('Ok'), .btn:has-text('Ok')").first
                                         if ok_btn.is_visible():
                                             ok_btn.click()
                                             page.wait_for_timeout(1000)
+                                            
+                                        # Break the for loop completely. action_taken remains False.
+                                        break
                                     else:
                                         ad_attempts[coach_name] += 1
                                         ads_watched += 1
                                         send_whatsapp_message(f"📺 Watching ad #{ads_watched} for {coach_name} to speed up training (waiting 65s)...")
                                         page.wait_for_timeout(65000)
                                         
-                                    action_taken = True
-                                    continue
+                                        action_taken = True
+                                        continue
                                     
                         if action_taken:
                             page.reload(wait_until="domcontentloaded")
