@@ -358,11 +358,21 @@ def training_loop():
                                     page.wait_for_timeout(2000)
                                     
                                     # Verification: Did the modal actually close?
-                                    if page.locator(".modal-dialog, div[role='dialog']").is_visible():
-                                        log.warning(f"❌ OSM rejected {selected_name}! (Likely in starting 11). Adding to ignore list.")
+                                    modal_locators = page.locator(".modal-dialog, div[role='dialog']")
+                                    is_any_modal_visible = False
+                                    for i in range(modal_locators.count()):
+                                        if modal_locators.nth(i).is_visible():
+                                            is_any_modal_visible = True
+                                            break
+                                            
+                                    if is_any_modal_visible:
+                                        log.warning(f"❌ OSM rejected {selected_name}! (Likely in starting 11 or an alert popped up). Adding to ignore list.")
                                         failed_players.append(selected_name)
                                         page.keyboard.press("Escape")
                                         page.wait_for_timeout(2000)
+                                        # Press escape again in case there's an alert modal AND the train modal
+                                        page.keyboard.press("Escape")
+                                        page.wait_for_timeout(1000)
                                         action_taken = True
                                         break
                                         
