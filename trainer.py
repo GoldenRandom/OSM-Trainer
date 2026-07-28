@@ -220,12 +220,14 @@ def training_loop():
                 except:
                     pass
 
+                # Leave arrays empty to auto-train the youngest prospects ("who deserves to be trained")
+                # Add names here ONLY if you want to force-train specific players
                 coach_mapping = {
-                    "Universal coach": ["zaïre", "zaire", "emery"],
-                    "Attacking coach": ["iwobi"],
-                    "Midfielder coach": ["nmecha"],
-                    "Defending coach": ["kalulu"],
-                    "Goalkeeping coach": ["remiro"]
+                    "Universal coach": [],
+                    "Attacking coach": [],
+                    "Midfielder coach": [],
+                    "Defending coach": [],
+                    "Goalkeeping coach": []
                 }
                 ad_attempts = {name: 0 for name in coach_mapping.keys()}
                 
@@ -294,16 +296,45 @@ def training_loop():
                                         except Exception: pass
                                             
                                     if not selected:
-                                        log.info(f"Designated player for {coach_name} not found. Falling back to top prospect...")
+                                        log.info(f"Designated player for {coach_name} not found. Scanning for the smartest prospect...")
+                                        import re
+                                        best_idx = 0
+                                        best_score = 9999
+                                        
+                                        for row_idx in range(player_rows.count()):
+                                            try:
+                                                row_text = player_rows.nth(row_idx).inner_text()
+                                                # Skip header row
+                                                if "age" in row_text.lower() or "pos" in row_text.lower() or "leeftijd" in row_text.lower():
+                                                    continue
+                                                    
+                                                # Find all standalone numbers
+                                                matches = re.findall(r'\b\d+\b', row_text)
+                                                if matches:
+                                                    age = int(matches[0])
+                                                    rating = int(matches[1]) if len(matches) > 1 else 99
+                                                    
+                                                    # OSM Age Brackets
+                                                    if age <= 20: age_penalty = 0
+                                                    elif age <= 24: age_penalty = 20
+                                                    elif age <= 29: age_penalty = 50
+                                                    else: age_penalty = 200
+                                                    
+                                                    # Score prioritizes lowest rating, but adds a penalty if they are older
+                                                    score = rating + age_penalty
+                                                    
+                                                    if score < best_score:
+                                                        best_score = score
+                                                        best_idx = row_idx
+                                            except Exception: pass
+                                            
+                                        log.info(f"Selected best balanced prospect at index {best_idx} (Score: {best_score})")
                                         try:
-                                            first_row_text = player_rows.nth(0).inner_text().lower()
-                                            fallback_idx = 1 if "age" in first_row_text or "pos" in first_row_text else 0
-                                            if player_rows.count() > fallback_idx:
-                                                player_rows.nth(fallback_idx).click()
-                                            else:
-                                                player_rows.nth(0).click()
+                                            selected_name = player_rows.nth(best_idx).inner_text().split()[0].title()
                                         except:
-                                            player_rows.nth(0).click()
+                                            selected_name = "Young Prospect"
+                                            
+                                        player_rows.nth(best_idx).click()
                                         
                                     log.info(f"Started training for: {selected_name} in {coach_name}")
                                     started_players.append(selected_name)
