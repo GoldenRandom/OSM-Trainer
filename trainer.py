@@ -205,6 +205,7 @@ def training_loop():
         claimed_count = 0
         started_players = []
         ads_watched = 0
+        failed_players = []
         
         while True:
             try:
@@ -268,7 +269,7 @@ def training_loop():
                                 claimed_count += 1
                                 page.wait_for_timeout(3000)
                                 action_taken = True
-                                continue
+                                break
                                 
                             # Check 2: START
                             start_btn = find_button_in_column(["text='Start'"])
@@ -298,7 +299,7 @@ def training_loop():
                                     if not selected:
                                         log.info(f"Designated player for {coach_name} not found. Scanning for the smartest prospect...")
                                         import re
-                                        best_idx = 0
+                                        best_idx = None
                                         best_score = 9999
                                         
                                         for row_idx in range(player_rows.count()):
@@ -308,11 +309,21 @@ def training_loop():
                                                 if "age" in row_text.lower() or "pos" in row_text.lower() or "leeftijd" in row_text.lower():
                                                     continue
                                                     
-                                                # Find all standalone numbers
-                                                matches = re.findall(r'\b\d+\b', row_text)
+                                                # Strip the shirt number (first number at the start of the row)
+                                                cleaned_text = re.sub(r'^\s*\d+', '', row_text).strip()
+                                                
+                                                # Skip players that OSM previously rejected (e.g., in starting lineup)
+                                                if any(f.lower() in cleaned_text.lower() for f in failed_players):
+                                                    continue
+                                                    
+                                                # Find all remaining standalone numbers
+                                                matches = re.findall(r'\b\d+\b', cleaned_text)
                                                 if matches:
                                                     age = int(matches[0])
-                                                    rating = int(matches[1]) if len(matches) > 1 else 99
+                                                    
+                                                    # Next 3 numbers are usually Att, Def, Ovr. Take the max to find their primary stat.
+                                                    stats = [int(x) for x in matches[1:4]]
+                                                    rating = max(stats) if stats else 99
                                                     
                                                     # OSM Age Brackets
                                                     if age <= 20: age_penalty = 0
@@ -320,7 +331,7 @@ def training_loop():
                                                     elif age <= 29: age_penalty = 50
                                                     else: age_penalty = 200
                                                     
-                                                    # Score prioritizes lowest rating, but adds a penalty if they are older
+                                                    # Score prioritizes lowest primary rating, but adds a penalty if they are older
                                                     score = rating + age_penalty
                                                     
                                                     if score < best_score:
@@ -328,24 +339,43 @@ def training_loop():
                                                         best_idx = row_idx
                                             except Exception: pass
                                             
-                                        log.info(f"Selected best balanced prospect at index {best_idx} (Score: {best_score})")
-                                        try:
-                                            selected_name = player_rows.nth(best_idx).inner_text().split()[0].title()
-                                        except:
-                                            selected_name = "Young Prospect"
-                                            
-                                        player_rows.nth(best_idx).click()
+                                        if best_idx is not None:
+                                            log.info(f"Selected best balanced prospect at index {best_idx} (Score: {best_score})")
+                                            try:
+                                                raw_text = player_rows.nth(best_idx).inner_text()
+                                                cleaned_text = re.sub(r'^\s*\d+', '', raw_text).strip()
+                                                selected_name = cleaned_text.split('\n')[0].split('\t')[0].strip()
+                                            except:
+                                                selected_name = f"Player {best_idx}"
+                                                
+                                            player_rows.nth(best_idx).click()
+                                        else:
+                                            log.warning("No valid players found to train! Escaping...")
+                                            page.keyboard.press("Escape")
+                                            page.wait_for_timeout(2000)
+                                            continue
                                         
-                                    log.info(f"Started training for: {selected_name} in {coach_name}")
+                                    page.wait_for_timeout(2000)
+                                    
+                                    # Verification: Did the modal actually close?
+                                    if page.locator(".modal-dialog, div[role='dialog']").is_visible():
+                                        log.warning(f"❌ OSM rejected {selected_name}! (Likely in starting 11). Adding to ignore list.")
+                                        failed_players.append(selected_name)
+                                        page.keyboard.press("Escape")
+                                        page.wait_for_timeout(2000)
+                                        action_taken = True
+                                        break
+                                        
+                                    log.info(f"✅ Started training for: {selected_name} in {coach_name}")
                                     started_players.append(selected_name)
-                                    page.wait_for_timeout(3000)
+                                    page.wait_for_timeout(2000)
                                 else:
                                     log.warning("Modal did not appear or no players found. Escaping...")
                                     page.keyboard.press("Escape")
                                     page.wait_for_timeout(2000)
                                     
                                 action_taken = True
-                                continue
+                                break
                                 
                         if action_taken:
                             page.reload(wait_until="domcontentloaded")
