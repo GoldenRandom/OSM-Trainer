@@ -230,6 +230,9 @@ def training_loop():
                     "Defending coach": [],
                     "Goalkeeping coach": []
                 }
+                
+                # Players to NEVER train (e.g., players you are selling, or old players)
+                do_not_train = ["maignan"]
                 ad_attempts = {name: 0 for name in coach_mapping.keys()}
                 
                 phase = "START"
@@ -314,6 +317,10 @@ def training_loop():
                                                 
                                                 # Skip players that OSM previously rejected (e.g., in starting lineup)
                                                 if any(f.lower() in cleaned_text.lower() for f in failed_players):
+                                                    continue
+                                                    
+                                                # Skip players the user manually blacklisted
+                                                if any(b.lower() in cleaned_text.lower() for b in do_not_train):
                                                     continue
                                                     
                                                 # Find all remaining standalone numbers
