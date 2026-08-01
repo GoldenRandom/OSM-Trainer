@@ -8,12 +8,96 @@ from playwright.sync_api import sync_playwright
 import urllib.parse
 import urllib.request
 
-# Add root directory to python path to import src modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# ==========================================
+# ADVISOR / SCRAPER LOGIC (Standalone)
+# ==========================================
+def scrape_squad(page):
+    squad_data = {"data": []}
+    def handle(res):
+        if "api/v1/" in res.url and "players" in res.url and "transferplayers" not in res.url:
+            try: squad_data["data"].append(res.json())
+            except: pass
+    page.on("response", handle)
+    page.goto("https://en.onlinesoccermanager.com/Squad", wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(3000)
+    page.remove_listener("response", handle)
+    players = []
+    for chunk in squad_data["data"]:
+        if isinstance(chunk, list): players.extend(chunk)
+    return players
 
-from src.advisor.transfers import get_sell_candidates, recommend_transfers
-from src.scraper.squad import scrape_squad
-from src.scraper.market import scrape_market
+def scrape_market(page):
+    market_data = {"data": []}
+    def handle(res):
+        if "api/v1/" in res.url and "transferplayers" in res.url:
+            try: market_data["data"].append(res.json())
+            except: pass
+    page.on("response", handle)
+    page.goto("https://en.onlinesoccermanager.com/Transferlist", wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(3000)
+    page.remove_listener("response", handle)
+    listings = []
+    for chunk in market_data["data"]:
+        if isinstance(chunk, list): listings.extend(chunk)
+    return listings
+
+def get_osm_rating(p):
+    pos = str(p.get("position", ""))
+    att = p.get("statAtt", p.get("attack", 0))
+    def_ = p.get("statDef", p.get("defense", 0))
+    ovr = p.get("statOvr", p.get("overall", 0))
+    if pos in ("1", "ATT", "ST", "LW", "RW"): return att if att > 0 else ovr
+    if pos in ("3", "DEF", "CB", "LB", "RB", "4", "GK"): return def_ if def_ > 0 else ovr
+    return round((att + def_) / 2) if att or def_ else ovr
+
+def get_sell_candidates(squad):
+    valid = sorted([get_osm_rating(p) for p in squad if get_osm_rating(p) > 0], reverse=True)
+    top_11 = valid[:11]
+    avg = round(sum(top_11)/max(len(top_11), 1), 1) if top_11 else 0
+    sell = []
+    by_pos = {"ATT": [], "MID": [], "DEF": [], "GK": []}
+    for p in squad:
+        sc = get_osm_rating(p)
+        if sc <= 0: continue
+        pos = str(p.get("position", ""))
+        if pos in ("1", "ATT", "ST", "LW", "RW"): g = "ATT"
+        elif pos in ("2", "MID", "CM", "CAM", "CDM"): g = "MID"
+        elif pos in ("3", "DEF", "CB", "LB", "RB"): g = "DEF"
+        elif pos in ("4", "GK"): g = "GK"
+        else: g = "MID"
+        by_pos[g].append((sc, p))
+        
+    for g, pos_players in by_pos.items():
+        pos_players.sort(key=lambda x: x[0], reverse=True)
+        for i, (sc, p) in enumerate(pos_players):
+            reason = ""
+            if i >= 5: reason = f"Surplus ({g})"
+            elif sc < avg * 0.90: reason = f"Low rated ({sc} vs {avg})"
+            if reason:
+                pc = dict(p)
+                pc["sell_reason"] = reason
+                sell.append(pc)
+    return sell
+
+def recommend_transfers(squad, market):
+    valid = sorted([get_osm_rating(p) for p in squad if get_osm_rating(p) > 0], reverse=True)
+    top_11 = valid[:11]
+    avg = round(sum(top_11)/max(len(top_11), 1), 1) if top_11 else 0
+    buys = []
+    for listing in market:
+        p = listing.get("player", listing)
+        sc = get_osm_rating(p)
+        if sc > avg * 1.05:
+            pc = dict(p)
+            price = listing.get("price", listing.get("current_price", 0))
+            if price > 0:
+                pc["price_formatted"] = f"{round(price / 1000000, 1)}M"
+            else:
+                pc["price_formatted"] = "???"
+            buys.append(pc)
+    buys.sort(key=lambda x: get_osm_rating(x), reverse=True)
+    return {"buys": buys, "profit_flips": []}
+# ==========================================
 
 def send_whatsapp_message(text):
     id_instance = os.getenv("GREEN_API_INSTANCE")
