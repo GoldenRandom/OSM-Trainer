@@ -197,7 +197,37 @@ def recommend_transfers(squad, market):
             if len(buys) >= 4:
                 break
                 
-    return {"buys": buys, "profit_flips": []}
+    profit_flips = []
+    for listing in market:
+        p = listing.get("player", listing)
+        pid = p.get("id") or p.get("name")
+        if pid in market_used: continue
+        
+        value = p.get("value", 0)
+        price = listing.get("price", listing.get("current_price", 0))
+        
+        if value > 0 and price > 0:
+            if price <= value * 1.35: # Underpriced on the market!
+                # Calculate max sell price based on standard OSM multipliers
+                if value < 5000000: mult = 2.5
+                elif value < 15000000: mult = 2.0
+                elif value < 25000000: mult = 1.7
+                elif value < 35000000: mult = 1.5
+                else: mult = 1.3
+                
+                sell_for = value * mult
+                profit = sell_for - price
+                
+                if profit > 2000000: # Only care if we can make at least 2M profit
+                    pc = dict(p)
+                    pc["buy_price"] = round(price / 1000000, 1)
+                    pc["sell_price"] = round(sell_for / 1000000, 1)
+                    pc["profit"] = round(profit / 1000000, 1)
+                    profit_flips.append(pc)
+                    
+    profit_flips.sort(key=lambda x: x["profit"], reverse=True)
+                
+    return {"buys": buys, "profit_flips": profit_flips[:3]}
 # ==========================================
 
 def send_whatsapp_message(text):
@@ -440,11 +470,15 @@ def training_loop():
                     whatsapp_msg += "\n🛒 *Recommended Upgrades:*\n"
                     for b in transfers.get("buys", []):
                         whatsapp_msg += f"- {b.get('upgrade_msg')}: 💰 {b.get('price_formatted')}\n"
+                        
+                if transfers and transfers.get("profit_flips"):
+                    whatsapp_msg += "\n📈 *Best Profit Flips:*\n"
+                    for f in transfers.get("profit_flips"):
+                        whatsapp_msg += f"- {f.get('name')} ({get_osm_rating(f)}): Buy 💰{f.get('buy_price')}M ➡️ Sell 💰{f.get('sell_price')}M (+{f.get('profit')}M Profit)\n"
         except Exception as e:
             log.error(f"Advisor module failed: {e}")
             
-        whatsapp_msg += "\nChecking for finished training and ads..."
-        send_whatsapp_message(whatsapp_msg)
+        # We will NOT send the message immediately. We will combine it with the training summary later to reduce spam.
         # ------------------------
         
         claimed_count = 0
@@ -726,8 +760,8 @@ def training_loop():
                 if claimed_count == 0 and not started_players and ads_watched == 0:
                     summary += "\nNo actions needed. Training in progress."
                     
-                send_whatsapp_message(summary)
-                send_whatsapp_message("----------------------------")
+                final_msg = whatsapp_msg + "\n\n" + summary + "\n----------------------------"
+                send_whatsapp_message(final_msg)
                 return
                     
             except Exception as e:
