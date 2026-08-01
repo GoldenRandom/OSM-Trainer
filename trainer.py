@@ -23,7 +23,13 @@ def scrape_squad(page):
     page.remove_listener("response", handle)
     players = []
     for chunk in squad_data["data"]:
-        if isinstance(chunk, list): players.extend(chunk)
+        if isinstance(chunk, list): 
+            players.extend(chunk)
+        elif isinstance(chunk, dict):
+            for key in ["players", "data", "result", "items"]:
+                if key in chunk and isinstance(chunk[key], list):
+                    players.extend(chunk[key])
+                    break
     return players
 
 def scrape_market(page):
@@ -38,7 +44,13 @@ def scrape_market(page):
     page.remove_listener("response", handle)
     listings = []
     for chunk in market_data["data"]:
-        if isinstance(chunk, list): listings.extend(chunk)
+        if isinstance(chunk, list): 
+            listings.extend(chunk)
+        elif isinstance(chunk, dict):
+            for key in ["players", "data", "result", "items"]:
+                if key in chunk and isinstance(chunk[key], list):
+                    listings.extend(chunk[key])
+                    break
     return listings
 
 def get_osm_rating(p):
