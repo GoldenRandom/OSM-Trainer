@@ -331,8 +331,15 @@ def training_loop():
                 if sell_candidates:
                     whatsapp_msg += "\n🗑️ *Players to Sell (Useless):*\n"
                     for p in sell_candidates:
-                        true_rating = get_osm_rating(p)
-                        whatsapp_msg += f"- {p.get('name')} (*Rating {true_rating}*)\n  └ {p.get('sell_reason')}\n"
+                        val = p.get('value', 0)
+                        if val < 5000000: mult = 2.5
+                        elif val < 15000000: mult = 2.0
+                        elif val < 25000000: mult = 1.7
+                        elif val < 35000000: mult = 1.5
+                        else: mult = 1.3
+                        sell_price_m = round((val * mult) / 1000000, 1)
+                        
+                        whatsapp_msg += f"- {p.get('name')}: 💰 {sell_price_m}M\n"
                         # Dynamically extract names to blacklist!
                         sell_names.append(p.get("name", "").lower())
                         
