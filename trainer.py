@@ -30,7 +30,14 @@ def scrape_squad(page):
                 if key in chunk and isinstance(chunk[key], list):
                     players.extend(chunk[key])
                     break
-    return players
+    
+    unique_players = {}
+    for p in players:
+        if isinstance(p, dict):
+            pid = p.get("id") or p.get("name")
+            if pid: unique_players[pid] = p
+            
+    return list(unique_players.values())
 
 def scrape_market(page):
     market_data = {"data": []}
@@ -51,7 +58,14 @@ def scrape_market(page):
                 if key in chunk and isinstance(chunk[key], list):
                     listings.extend(chunk[key])
                     break
-    return listings
+                    
+    unique_listings = {}
+    for p in listings:
+        if isinstance(p, dict):
+            pid = p.get("id") or p.get("name")
+            if pid: unique_listings[pid] = p
+            
+    return list(unique_listings.values())
 
 def get_osm_rating(p):
     pos = str(p.get("position", ""))
@@ -330,17 +344,21 @@ def training_loop():
                 
                 if sell_candidates:
                     whatsapp_msg += "\n🗑️ *Players to Sell (Useless):*\n"
-                    for p in sell_candidates:
-                        val = p.get('value', 0)
-                        if val < 5000000: mult = 2.5
-                        elif val < 15000000: mult = 2.0
-                        elif val < 25000000: mult = 1.7
-                        elif val < 35000000: mult = 1.5
-                        else: mult = 1.3
-                        sell_price_m = round((val * mult) / 1000000, 1)
-                        
-                        whatsapp_msg += f"- {p.get('name')}: 💰 {sell_price_m}M\n"
-                        # Dynamically extract names to blacklist!
+                    for idx, p in enumerate(sell_candidates):
+                        if idx < 6:
+                            val = p.get('value', 0)
+                            if val < 5000000: mult = 2.5
+                            elif val < 15000000: mult = 2.0
+                            elif val < 25000000: mult = 1.7
+                            elif val < 35000000: mult = 1.5
+                            else: mult = 1.3
+                            sell_price_m = round((val * mult) / 1000000, 1)
+                            
+                            whatsapp_msg += f"- {p.get('name')}: 💰 {sell_price_m}M\n"
+                        elif idx == 6:
+                            whatsapp_msg += f"- ...and {len(sell_candidates) - 6} more (auto-blacklisted)\n"
+                            
+                        # Dynamically extract ALL names to blacklist!
                         sell_names.append(p.get("name", "").lower())
                         
                 if transfers and (transfers.get("buys") or transfers.get("profit_flips")):
