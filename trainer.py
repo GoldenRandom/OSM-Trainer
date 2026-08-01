@@ -319,14 +319,16 @@ def training_loop():
                 if sell_candidates:
                     whatsapp_msg += "\n🗑️ *Players to Sell (Useless):*\n"
                     for p in sell_candidates:
-                        whatsapp_msg += f"- {p.get('name')} (Rating {p.get('statOvr', 0)})\n  └ {p.get('sell_reason')}\n"
+                        true_rating = get_osm_rating(p)
+                        whatsapp_msg += f"- {p.get('name')} (*Rating {true_rating}*)\n  └ {p.get('sell_reason')}\n"
                         # Dynamically extract names to blacklist!
                         sell_names.append(p.get("name", "").lower())
                         
                 if transfers and (transfers.get("buys") or transfers.get("profit_flips")):
                     whatsapp_msg += "\n🛒 *Recommended Buys:*\n"
                     for b in transfers.get("buys", [])[:3]: # Top 3 buys
-                        whatsapp_msg += f"- {b.get('name')} (Rating {b.get('statOvr', 0)}): 💰 {b.get('price_formatted')}\n"
+                        true_rating = get_osm_rating(b)
+                        whatsapp_msg += f"- {b.get('name')} (*Rating {true_rating}*): 💰 {b.get('price_formatted')}\n"
         except Exception as e:
             log.error(f"Advisor module failed: {e}")
             
