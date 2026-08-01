@@ -17,8 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          playwright install chromium chrome
-          playwright install-deps chromium chrome
+          playwright install chromium
           
       - name: Run Trainer
         env:
@@ -26,4 +25,6 @@ jobs:
           GREEN_API_INSTANCE: ${{ secrets.GREEN_API_INSTANCE }}
           GREEN_API_TOKEN: ${{ secrets.GREEN_API_TOKEN }}
           WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+          TARGET_TEAM: ${{ secrets.TARGET_TEAM }}
+          TARGET_LEAGUE: ${{ secrets.TARGET_LEAGUE }}
         run: xvfb-run --auto-servernum python -u trainer.py
