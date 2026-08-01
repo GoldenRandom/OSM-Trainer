@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import random
 import json
@@ -6,6 +7,13 @@ import logging
 from playwright.sync_api import sync_playwright
 import urllib.parse
 import urllib.request
+
+# Add root directory to python path to import src modules
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.advisor.transfers import get_sell_candidates, recommend_transfers
+from src.scraper.squad import scrape_squad
+from src.scraper.market import scrape_market
 
 def send_whatsapp_message(text):
     id_instance = os.getenv("GREEN_API_INSTANCE")
@@ -163,25 +171,35 @@ def training_loop():
         target_slot = None
         target_league_data = None
         
-        for l in leagues:
-            if "liverpool" in l["team_name"].lower() and "winners cup" in l["league_name"].lower():
-                target_slot = l["slot_index"]
-                target_league_data = l
-                break
-
-        if target_slot is None:
-            log.warning("Could not find Liverpool in Winners Cup exactly. Looking for any Liverpool...")
+        target_team_env = os.environ.get("TARGET_TEAM", "").strip().lower()
+        target_league_env = os.environ.get("TARGET_LEAGUE", "").strip().lower()
+        
+        if target_team_env:
+            log.info(f"Looking for Target Team: '{target_team_env}' (League: '{target_league_env}')")
             for l in leagues:
-                if "liverpool" in l["team_name"].lower():
+                team_match = target_team_env in l["team_name"].lower()
+                league_match = not target_league_env or target_league_env in l["league_name"].lower()
+                
+                if team_match and league_match:
                     target_slot = l["slot_index"]
                     target_league_data = l
                     break
-                    
+
+            if target_slot is None:
+                log.warning(f"Could not find exact match for team '{target_team_env}'. Looking for any partial match...")
+                for l in leagues:
+                    if target_team_env in l["team_name"].lower():
+                        target_slot = l["slot_index"]
+                        target_league_data = l
+                        break
+                        
         if target_slot is not None:
-            log.info(f"Switching to slot {target_slot}...")
+            log.info(f"Switching to slot {target_slot} ({target_league_data['team_name']})...")
             switch_league_slot(pw, target_league_data)
+        elif target_team_env:
+            log.error(f"Could not find team '{target_team_env}' in any slot. Continuing on current slot...")
         else:
-            log.error("Could not find Liverpool in any slot. Continuing anyway...")
+            log.info("No TARGET_TEAM specified. Continuing on current active slot...")
 
         log.info("Launching browser...")
         browser = pw.chromium.launch(
@@ -200,7 +218,37 @@ def training_loop():
         context.add_cookies(cookies)
         
         page = context.new_page()
-        send_whatsapp_message("▶️ OSM Trainer Started\nChecking for finished training and ads...")
+        
+        # --- ADVISOR LOGIC ---
+        sell_names = []
+        whatsapp_msg = "▶️ OSM Trainer Started\n"
+        
+        try:
+            squad = scrape_squad(page)
+            market = scrape_market(page)
+            sell_candidates = get_sell_candidates(squad)
+            transfers = recommend_transfers(squad, market)
+            
+            if sell_candidates or (transfers and (transfers.get("buys") or transfers.get("profit_flips"))):
+                whatsapp_msg += "\n💡 *OSM Advisor Report*\n"
+                
+                if sell_candidates:
+                    whatsapp_msg += "\n🗑️ *Players to Sell (Useless):*\n"
+                    for p in sell_candidates:
+                        whatsapp_msg += f"- {p.get('name')} (Rating {p.get('statOvr', 0)})\n  └ {p.get('sell_reason')}\n"
+                        # Dynamically extract names to blacklist!
+                        sell_names.append(p.get("name", "").lower())
+                        
+                if transfers and (transfers.get("buys") or transfers.get("profit_flips")):
+                    whatsapp_msg += "\n🛒 *Recommended Buys:*\n"
+                    for b in transfers.get("buys", [])[:3]: # Top 3 buys
+                        whatsapp_msg += f"- {b.get('name')} (Rating {b.get('statOvr', 0)}): 💰 {b.get('price_formatted')}\n"
+        except Exception as e:
+            log.error(f"Advisor module failed: {e}")
+            
+        whatsapp_msg += "\nChecking for finished training and ads..."
+        send_whatsapp_message(whatsapp_msg)
+        # ------------------------
         
         claimed_count = 0
         started_players = []
@@ -232,7 +280,7 @@ def training_loop():
                 }
                 
                 # Players to NEVER train (e.g., players you are selling, or old players)
-                do_not_train = ["maignan"]
+                do_not_train = ["maignan"] + sell_names
                 ad_attempts = {name: 0 for name in coach_mapping.keys()}
                 
                 phase = "START"
