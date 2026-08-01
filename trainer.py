@@ -95,10 +95,20 @@ def get_sell_candidates(squad):
         
     for g, pos_players in by_pos.items():
         pos_players.sort(key=lambda x: x[0], reverse=True)
+        
+        # Safe limits to ensure we never sell our starting core
+        keep_limit = 2 if g == "GK" else 5
+        core_limit = 1 if g == "GK" else 3
+        
         for i, (sc, p) in enumerate(pos_players):
             reason = ""
-            if i >= 5: reason = f"Surplus ({g})"
-            elif sc < avg * 0.90: reason = f"Low rated ({sc} vs {avg})"
+            # If we have a massive surplus, sell them
+            if i >= keep_limit: 
+                reason = f"Surplus ({g})"
+            # If they aren't part of our vital core AND their rating is below 93% of our top 11 avg, sell them
+            elif i >= core_limit and sc < avg * 0.93: 
+                reason = f"Low rated ({sc} vs {avg})"
+                
             if reason:
                 pc = dict(p)
                 pc["sell_reason"] = reason
