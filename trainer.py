@@ -18,8 +18,10 @@ def scrape_squad(page):
             try: squad_data["data"].append(res.json())
             except: pass
     page.on("response", handle)
-    page.goto("https://en.onlinesoccermanager.com/Squad", wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(3000)
+    page.goto(f"{BASE_URL}/Squad", wait_until="domcontentloaded", timeout=60000)
+    for _ in range(20):
+        if squad_data["data"]: break
+        page.wait_for_timeout(500)
     page.remove_listener("response", handle)
     players = []
     for chunk in squad_data["data"]:
@@ -46,8 +48,10 @@ def scrape_market(page):
             try: market_data["data"].append(res.json())
             except: pass
     page.on("response", handle)
-    page.goto("https://en.onlinesoccermanager.com/Transferlist", wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(3000)
+    page.goto(f"{BASE_URL}/Transferlist", wait_until="domcontentloaded", timeout=60000)
+    for _ in range(20):
+        if market_data["data"]: break
+        page.wait_for_timeout(500)
     page.remove_listener("response", handle)
     listings = []
     for chunk in market_data["data"]:
