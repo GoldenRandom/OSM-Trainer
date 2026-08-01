@@ -116,22 +116,83 @@ def get_sell_candidates(squad):
     return sell
 
 def recommend_transfers(squad, market):
-    valid = sorted([get_osm_rating(p) for p in squad if get_osm_rating(p) > 0], reverse=True)
-    top_11 = valid[:11]
-    avg = round(sum(top_11)/max(len(top_11), 1), 1) if top_11 else 0
-    buys = []
-    for listing in market:
-        p = listing.get("player", listing)
+    # 1. Group squad into broad positions and sort by rating
+    by_pos = {"ATT": [], "MID": [], "DEF": [], "GK": []}
+    for p in squad:
         sc = get_osm_rating(p)
-        if sc > avg * 1.05:
-            pc = dict(p)
-            price = listing.get("price", listing.get("current_price", 0))
+        pos = str(p.get("position", ""))
+        if pos in ("1", "ATT", "ST", "LW", "RW"): g = "ATT"
+        elif pos in ("2", "MID", "CM", "CAM", "CDM"): g = "MID"
+        elif pos in ("3", "DEF", "CB", "LB", "RB"): g = "DEF"
+        elif pos in ("4", "GK"): g = "GK"
+        else: g = "MID"
+        
+        spec = str(p.get("positionSpecific", g))
+        if not spec or spec.isdigit(): spec = g
+            
+        by_pos[g].append({"rating": sc, "name": p.get("name"), "spec": spec, "group": g})
+        
+    for g in by_pos:
+        by_pos[g].sort(key=lambda x: x["rating"], reverse=True)
+        
+    # 2. Extract starting 11 (4-3-3)
+    starters = []
+    def add_starters(g, count):
+        for i in range(count):
+            if i < len(by_pos[g]):
+                starters.append(by_pos[g][i])
+            else:
+                starters.append({"rating": 0, "name": "Empty Slot", "spec": g, "group": g})
+                
+    add_starters("GK", 1)
+    add_starters("DEF", 4)
+    add_starters("MID", 3)
+    add_starters("ATT", 3)
+    
+    # 3. Sort starters from weakest to strongest slot
+    starters.sort(key=lambda x: x["rating"])
+    
+    # 4. Find the best market upgrade for the weakest slots
+    buys = []
+    market_used = set()
+    
+    for slot in starters:
+        best_upgrade = None
+        best_upgrade_listing = None
+        
+        for listing in market:
+            p = listing.get("player", listing)
+            pid = p.get("id") or p.get("name")
+            if pid in market_used: continue
+            
+            sc = get_osm_rating(p)
+            pos = str(p.get("position", ""))
+            if pos in ("1", "ATT", "ST", "LW", "RW"): mg = "ATT"
+            elif pos in ("2", "MID", "CM", "CAM", "CDM"): mg = "MID"
+            elif pos in ("3", "DEF", "CB", "LB", "RB"): mg = "DEF"
+            elif pos in ("4", "GK"): mg = "GK"
+            else: mg = "MID"
+                 
+            if mg == slot["group"] and sc > slot["rating"]:
+                if not best_upgrade or sc > best_upgrade["rating"]:
+                    best_upgrade = {"rating": sc, "name": p.get("name"), "id": pid}
+                    best_upgrade_listing = listing
+                    
+        if best_upgrade_listing:
+            market_used.add(best_upgrade["id"])
+            pc = dict(best_upgrade_listing.get("player", best_upgrade_listing))
+            price = best_upgrade_listing.get("price", best_upgrade_listing.get("current_price", 0))
             if price > 0:
                 pc["price_formatted"] = f"{round(price / 1000000, 1)}M"
             else:
                 pc["price_formatted"] = "???"
+            
+            pc["upgrade_msg"] = f"Upgrade {slot['spec']} ({slot['name']} {slot['rating']}) ➡️ {pc.get('name')} ({best_upgrade['rating']})"
             buys.append(pc)
-    buys.sort(key=lambda x: get_osm_rating(x), reverse=True)
+            
+            if len(buys) >= 4:
+                break
+                
     return {"buys": buys, "profit_flips": []}
 # ==========================================
 
@@ -372,10 +433,9 @@ def training_loop():
                         sell_names.append(p.get("name", "").lower())
                         
                 if transfers and (transfers.get("buys") or transfers.get("profit_flips")):
-                    whatsapp_msg += "\n🛒 *Recommended Buys:*\n"
-                    for b in transfers.get("buys", [])[:3]: # Top 3 buys
-                        true_rating = get_osm_rating(b)
-                        whatsapp_msg += f"- {b.get('name')} (*Rating {true_rating}*): 💰 {b.get('price_formatted')}\n"
+                    whatsapp_msg += "\n🛒 *Recommended Upgrades:*\n"
+                    for b in transfers.get("buys", []):
+                        whatsapp_msg += f"- {b.get('upgrade_msg')}: 💰 {b.get('price_formatted')}\n"
         except Exception as e:
             log.error(f"Advisor module failed: {e}")
             
