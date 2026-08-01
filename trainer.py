@@ -207,27 +207,28 @@ def recommend_transfers(squad, market):
         price = listing.get("price", listing.get("current_price", 0))
         
         if value > 0 and price > 0:
-            if price <= value * 1.35: # Underpriced on the market!
-                # Calculate max sell price based on standard OSM multipliers
-                if value < 5000000: mult = 2.5
-                elif value < 15000000: mult = 2.0
-                elif value < 25000000: mult = 1.7
-                elif value < 35000000: mult = 1.5
-                else: mult = 1.3
-                
-                sell_for = value * mult
-                profit = sell_for - price
-                
-                if profit > 2000000: # Only care if we can make at least 2M profit
-                    pc = dict(p)
-                    pc["buy_price"] = round(price / 1000000, 1)
-                    pc["sell_price"] = round(sell_for / 1000000, 1)
-                    pc["profit"] = round(profit / 1000000, 1)
-                    profit_flips.append(pc)
+            # Calculate max sell price based on standard OSM multipliers
+            if value < 5000000: mult = 2.5
+            elif value < 15000000: mult = 2.0
+            elif value < 25000000: mult = 1.7
+            elif value < 35000000: mult = 1.5
+            else: mult = 1.3
+            
+            sell_for = value * mult
+            profit = sell_for - price
+            
+            if profit >= 1000000: # Even 1M profit is good for cheap flips
+                pc = dict(p)
+                pc["buy_price"] = round(price / 1000000, 1)
+                pc["sell_price"] = round(sell_for / 1000000, 1)
+                pc["profit"] = round(profit / 1000000, 1)
+                pc["roi"] = profit / price # Return on Investment!
+                profit_flips.append(pc)
                     
-    profit_flips.sort(key=lambda x: x["profit"], reverse=True)
+    # Sort by highest ROI% (this naturally bubbles the cheapest, worst players to the top!)
+    profit_flips.sort(key=lambda x: x["roi"], reverse=True)
                 
-    return {"buys": buys, "profit_flips": profit_flips[:3]}
+    return {"buys": buys, "profit_flips": profit_flips[:2]}
 # ==========================================
 
 def send_whatsapp_message(text):
