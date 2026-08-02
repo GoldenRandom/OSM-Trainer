@@ -322,10 +322,7 @@ def get_smart_training_picks(context, league_id, team_id, do_not_train=None):
     coach_picks["Universal coach"] = [p.get("name", "").lower() for p in all_lineup if p.get("name")]
 
     # Log what we picked
-    log.info("Smart training picks (lineup-based):")
-    for coach, names in coach_picks.items():
-        top = names[0] if names else "(none)"
-        log.info(f"  {coach}: {top}")
+    log.info("Smart training picks calculated based on lineup and age.")
 
     return coach_picks
 
@@ -491,7 +488,7 @@ def training_loop():
         target_league_env = os.environ.get("TARGET_LEAGUE", "").strip().lower()
         
         if target_team_env:
-            log.info(f"Looking for Target Team: '{target_team_env}' (League: '{target_league_env}')")
+            log.info("Looking for Target Team in slots...")
             for l in leagues:
                 team_match = target_team_env in l["team_name"].lower()
                 league_match = not target_league_env or target_league_env in l["league_name"].lower()
@@ -502,7 +499,7 @@ def training_loop():
                     break
 
             if target_slot is None:
-                log.warning(f"Could not find exact match for team '{target_team_env}'. Looking for any partial match...")
+                log.warning("Could not find exact match for target team. Looking for any partial match...")
                 for l in leagues:
                     if target_team_env in l["team_name"].lower():
                         target_slot = l["slot_index"]
@@ -510,10 +507,10 @@ def training_loop():
                         break
                         
         if target_slot is not None:
-            log.info(f"Switching to slot {target_slot} ({target_league_data['team_name']})...")
+            log.info(f"Switching to slot {target_slot}...")
             switch_league_slot(pw, target_league_data)
         elif target_team_env:
-            log.error(f"Could not find team '{target_team_env}' in any slot. Continuing on current slot...")
+            log.error("Could not find target team in any slot. Continuing on current slot...")
         else:
             log.info("No TARGET_TEAM specified. Continuing on current active slot...")
 
@@ -584,7 +581,7 @@ def training_loop():
                             replaced_name = inner.rsplit(" ", 1)[0]  # "Furlong"
                             if replaced_name:
                                 sell_names.append(replaced_name.lower())
-                                log.info(f"Blacklisted '{replaced_name}' from training (being replaced by upgrade)")
+                                log.info("Blacklisted a player from training (being replaced by upgrade)")
                         
                 if transfers and transfers.get("profit_flips"):
                     whatsapp_msg += "\n📈 *Best Profit Flips:*\n"
@@ -697,7 +694,7 @@ def training_loop():
                                                 if pref_name.lower() in [b.lower() for b in do_not_train]:
                                                     continue
                                                 if pref_name in row_text:
-                                                    log.info(f"Found designated player '{pref_name}' for {coach_name}. Selecting...")
+                                                    log.info(f"Found designated player for {coach_name}. Selecting...")
                                                     player_rows.nth(row_idx).click()
                                                     selected = True
                                                     selected_name = pref_name.title()
@@ -779,7 +776,7 @@ def training_loop():
                                             break
                                             
                                     if is_any_modal_visible:
-                                        log.warning(f"❌ OSM rejected {selected_name}! (Likely in starting 11 or an alert popped up). Adding to ignore list.")
+                                        log.warning("❌ OSM rejected the selected player! (Likely in starting 11 or an alert popped up). Adding to ignore list.")
                                         failed_players.append(selected_name)
                                         page.keyboard.press("Escape")
                                         page.wait_for_timeout(2000)
@@ -789,7 +786,7 @@ def training_loop():
                                         action_taken = True
                                         break
                                         
-                                    log.info(f"✅ Started training for: {selected_name} in {coach_name}")
+                                    log.info(f"✅ Started training for a player in {coach_name}")
                                     started_players.append(selected_name)
                                     page.wait_for_timeout(2000)
                                 else:
