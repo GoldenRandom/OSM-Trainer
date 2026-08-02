@@ -750,7 +750,7 @@ def training_loop():
                                             except Exception: pass
                                             
                                         if best_idx is not None:
-                                            log.info(f"Selected best balanced prospect at index {best_idx} (Score: {best_score})")
+                                            log.info("Selected best balanced prospect based on age and stats.")
                                             try:
                                                 raw_text = player_rows.nth(best_idx).inner_text()
                                                 cleaned_text = re.sub(r'^\s*\d+', '', raw_text).strip()
