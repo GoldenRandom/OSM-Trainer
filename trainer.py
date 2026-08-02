@@ -692,6 +692,10 @@ def training_loop():
                                         try:
                                             row_text = player_rows.nth(row_idx).inner_text().lower()
                                             for pref_name in preferred_players:
+                                                if pref_name.lower() in [f.lower() for f in failed_players]:
+                                                    continue
+                                                if pref_name.lower() in [b.lower() for b in do_not_train]:
+                                                    continue
                                                 if pref_name in row_text:
                                                     log.info(f"Found designated player '{pref_name}' for {coach_name}. Selecting...")
                                                     player_rows.nth(row_idx).click()
