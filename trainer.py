@@ -359,7 +359,7 @@ def send_whatsapp_message(text):
         log.error(f"Failed to send Green API message: {e}")
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s │ %(levelname)-8s │ %(message)s", datefmt="%H:%M:%S")
+logging.basicConfig(level=logging.CRITICAL, format="%(asctime)s │ %(levelname)-8s │ %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("training_ad_watcher")
 
 BASE_URL = "https://en.onlinesoccermanager.com"
