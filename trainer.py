@@ -229,6 +229,94 @@ def recommend_transfers(squad, market):
     profit_flips.sort(key=lambda x: x["roi"], reverse=True)
                 
     return {"buys": buys, "profit_flips": profit_flips[:2]}
+
+def get_smart_training_picks(context, league_id, team_id, do_not_train=None):
+    """Fetch squad from API and pick the best players to train for each coach.
+    Priority: Starting XI (weakest bold first) > Bench > Young prospects.
+    Excludes players in do_not_train list (sell candidates, etc.)."""
+    if do_not_train is None:
+        do_not_train = []
+    try:
+        res = context.request.get(
+            f"https://web-api.onlinesoccermanager.com/api/v1/leagues/{league_id}/teams/{team_id}/players"
+        )
+        if not res.ok:
+            log.warning("Could not fetch squad from API for smart training picks.")
+            return {}
+        players = res.json()
+    except Exception as e:
+        log.warning(f"Failed to fetch squad for training: {e}")
+        return {}
+
+    # Filter out players we don't want to train (sell candidates, etc.)
+    players = [p for p in players if p.get("name", "").lower() not in do_not_train]
+
+    def bold(p):
+        return max(p.get("statAtt", 0), p.get("statDef", 0), p.get("statOvr", 0))
+
+    def group_pos(p):
+        pos = p.get("position", 0)
+        if pos == 1: return "ATT"
+        if pos == 2: return "MID"
+        if pos == 3: return "DEF"
+        if pos == 4: return "GK"
+        return "MID"
+
+    # Identify starting XI from the lineup field
+    starting = [p for p in players if p.get("lineup", 0) > 0]
+    starting_names = {p.get("name", "").lower() for p in starting}
+
+    # Group ALL players by position, sorted best-first
+    by_pos = {"ATT": [], "MID": [], "DEF": [], "GK": []}
+    for p in players:
+        by_pos[group_pos(p)].append(p)
+    for g in by_pos:
+        by_pos[g].sort(key=lambda p: bold(p), reverse=True)
+
+    # Bench = next-best players after starters (not in starting XI)
+    bench_counts = {"GK": 1, "DEF": 2, "MID": 2, "ATT": 2}
+    bench_names = set()
+    for g, count in bench_counts.items():
+        found = 0
+        for p in by_pos[g]:
+            if p.get("name", "").lower() not in starting_names:
+                bench_names.add(p.get("name", "").lower())
+                found += 1
+                if found >= count:
+                    break
+
+    lineup_names = starting_names | bench_names
+
+    def pick_for_position(pos_group):
+        """Pick players to train: starting XI weakest first, then bench weakest first."""
+        candidates = by_pos.get(pos_group, [])
+        in_starting = [p for p in candidates if p.get("name", "").lower() in starting_names]
+        in_bench = [p for p in candidates if p.get("name", "").lower() in bench_names]
+        # Sort weakest bold first (most room to improve team score)
+        in_starting.sort(key=lambda p: bold(p))
+        in_bench.sort(key=lambda p: bold(p))
+        return [p.get("name", "").lower() for p in in_starting + in_bench if p.get("name")]
+
+    coach_picks = {
+        "Attacking coach": pick_for_position("ATT"),
+        "Midfielder coach": pick_for_position("MID"),
+        "Defending coach": pick_for_position("DEF"),
+        "Goalkeeping coach": pick_for_position("GK"),
+    }
+
+    # Universal coach: weakest player actually in the lineup (starting XI + bench)
+    all_lineup = [p for p in players if p.get("lineup", 0) > 0]
+    all_lineup.sort(key=lambda p: bold(p))
+    coach_picks["Universal coach"] = [p.get("name", "").lower() for p in all_lineup if p.get("name")]
+
+    # Log what we picked
+    log.info("Smart training picks (lineup-based):")
+    for coach, names in coach_picks.items():
+        top = names[0] if names else "(none)"
+        log.info(f"  {coach}: {top}")
+
+    return coach_picks
+
 # ==========================================
 
 def send_whatsapp_message(text):
@@ -417,6 +505,10 @@ def training_loop():
         else:
             log.info("No TARGET_TEAM specified. Continuing on current active slot...")
 
+        # Ensure target_league_data is always set (for API calls)
+        if target_league_data is None and leagues:
+            target_league_data = leagues[0]
+
         log.info("Launching browser...")
         browser = pw.chromium.launch(
             headless=False,
@@ -472,6 +564,16 @@ def training_loop():
                     for b in transfers.get("buys", []):
                         whatsapp_msg += f"- {b.get('upgrade_msg')}: 💰 {b.get('price_formatted')}\n"
                         
+                        # Also blacklist the player being REPLACED so we don't waste training on them
+                        # upgrade_msg format: "Upgrade DEF (Furlong 75) ➡️ NewPlayer (85)"
+                        msg = b.get("upgrade_msg", "")
+                        if "(" in msg and ")" in msg:
+                            inner = msg.split("(")[1].split(")")[0]  # "Furlong 75"
+                            replaced_name = inner.rsplit(" ", 1)[0]  # "Furlong"
+                            if replaced_name:
+                                sell_names.append(replaced_name.lower())
+                                log.info(f"Blacklisted '{replaced_name}' from training (being replaced by upgrade)")
+                        
                 if transfers and transfers.get("profit_flips"):
                     whatsapp_msg += "\n📈 *Best Profit Flips:*\n"
                     for f in transfers.get("profit_flips"):
@@ -501,14 +603,22 @@ def training_loop():
                 except:
                     pass
 
-                # Leave arrays empty to auto-train the youngest prospects ("who deserves to be trained")
-                # Add names here ONLY if you want to force-train specific players
+                # Smart training: fetch lineup from API and pick players intelligently
+                smart_picks = {}
+                if target_league_data:
+                    smart_picks = get_smart_training_picks(
+                        context,
+                        target_league_data["league_id"],
+                        target_league_data["team_id"],
+                        do_not_train=["maignan"] + sell_names
+                    )
+
                 coach_mapping = {
-                    "Universal coach": [],
-                    "Attacking coach": [],
-                    "Midfielder coach": [],
-                    "Defending coach": [],
-                    "Goalkeeping coach": []
+                    "Universal coach": smart_picks.get("Universal coach", []),
+                    "Attacking coach": smart_picks.get("Attacking coach", []),
+                    "Midfielder coach": smart_picks.get("Midfielder coach", []),
+                    "Defending coach": smart_picks.get("Defending coach", []),
+                    "Goalkeeping coach": smart_picks.get("Goalkeeping coach", [])
                 }
                 
                 # Players to NEVER train (e.g., players you are selling, or old players)
