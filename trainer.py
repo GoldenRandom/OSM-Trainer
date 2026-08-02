@@ -254,6 +254,18 @@ def get_smart_training_picks(context, league_id, team_id, do_not_train=None):
     def bold(p):
         return max(p.get("statAtt", 0), p.get("statDef", 0), p.get("statOvr", 0))
 
+    def get_training_score(p):
+        rating = bold(p)
+        age = p.get("age", 99)
+        
+        # OSM Age Brackets
+        if age <= 20: age_penalty = 0
+        elif age <= 24: age_penalty = 10
+        elif age <= 29: age_penalty = 30
+        else: age_penalty = 100
+        
+        return rating + age_penalty
+
     def group_pos(p):
         pos = p.get("position", 0)
         if pos == 1: return "ATT"
@@ -292,9 +304,9 @@ def get_smart_training_picks(context, league_id, team_id, do_not_train=None):
         candidates = by_pos.get(pos_group, [])
         in_starting = [p for p in candidates if p.get("name", "").lower() in starting_names]
         in_bench = [p for p in candidates if p.get("name", "").lower() in bench_names]
-        # Sort weakest bold first (most room to improve team score)
-        in_starting.sort(key=lambda p: bold(p))
-        in_bench.sort(key=lambda p: bold(p))
+        # Sort by training score (factors in age and rating)
+        in_starting.sort(key=lambda p: get_training_score(p))
+        in_bench.sort(key=lambda p: get_training_score(p))
         return [p.get("name", "").lower() for p in in_starting + in_bench if p.get("name")]
 
     coach_picks = {
@@ -306,7 +318,7 @@ def get_smart_training_picks(context, league_id, team_id, do_not_train=None):
 
     # Universal coach: weakest player actually in the lineup (starting XI + bench)
     all_lineup = [p for p in players if p.get("lineup", 0) > 0]
-    all_lineup.sort(key=lambda p: bold(p))
+    all_lineup.sort(key=lambda p: get_training_score(p))
     coach_picks["Universal coach"] = [p.get("name", "").lower() for p in all_lineup if p.get("name")]
 
     # Log what we picked
